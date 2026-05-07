@@ -9,6 +9,8 @@ LAN-synced video streaming for up to 4 users.
 
 ## Setup
 
+Copy [.env.example](.env.example) to a local `.env` file if you want to override the default ports or server URL.
+
 ### 1) Start the server
 
 ```bash

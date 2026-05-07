@@ -45,6 +45,22 @@ export default function Host() {
     setUploading(true);
     setUploadError("");
 
+    try {
+      const healthResponse = await fetch(`${serverBase}/health`, {
+        method: "GET"
+      });
+
+      if (!healthResponse.ok) {
+        throw new Error("Upload server is not reachable right now.");
+      }
+    } catch (error) {
+      setUploadError(
+        "Upload server is unreachable. Start the Node server or set NEXT_PUBLIC_SERVER_URL to a live backend."
+      );
+      setUploading(false);
+      return;
+    }
+
     const formData = new FormData();
     formData.append("roomId", roomId);
     formData.append("video", videoFile);
