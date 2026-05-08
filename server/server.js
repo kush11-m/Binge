@@ -44,7 +44,9 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", (req, res) => {
-  res.json({ ok: true });
+  res.status(200).json({
+    status: "ok"
+  });
 });
 
 app.use("/upload", createUploadRouter({ uploadDir: UPLOAD_DIR, rooms }));
