@@ -39,15 +39,17 @@ app.use((req, res, next) => {
   next();
 });
 
-app.get("/", (req, res) => {
-  res.send("Backend running");
-});
+console.log("Registering /health route");
 
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "ok",
     message: "Server is running"
   });
+});
+
+app.get("/", (req, res) => {
+  res.send("Backend running");
 });
 
 app.use("/upload", createUploadRouter({ uploadDir: UPLOAD_DIR, rooms }));
