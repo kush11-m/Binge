@@ -45,7 +45,8 @@ app.get("/", (req, res) => {
 
 app.get("/health", (req, res) => {
   res.status(200).json({
-    status: "ok"
+    status: "ok",
+    message: "Server is running"
   });
 });
 
