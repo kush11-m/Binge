@@ -25,7 +25,7 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 const rooms = new Map();
 
-app.use(cors());
+app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "2mb" }));
 
 app.use((req, res, next) => {
@@ -55,5 +55,5 @@ app.use("/subs", express.static(UPLOAD_DIR, staticOptions));
 attachSocketHandlers(io, rooms, { uploadDir: UPLOAD_DIR });
 
 server.listen(PORT, () => {
-  console.log(`SyncStream server running on :${PORT}`);
+  console.log(`Server running on ${PORT}`);
 });
