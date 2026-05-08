@@ -8,7 +8,7 @@ export default function Host() {
   const router = useRouter();
   const [roomId, setRoomId] = useState("");
   const [serverBase, setServerBase] = useState("");
-  const [hostname, setHostname] = useState("");
+  const [origin, setOrigin] = useState("");
   const [videoFile, setVideoFile] = useState(null);
   const [subsFile, setSubsFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -19,7 +19,7 @@ export default function Host() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const host = window.location.hostname;
-    setHostname(host);
+    setOrigin(window.location.origin);
     const fallbackPort = process.env.NEXT_PUBLIC_SERVER_PORT || "3002";
     setServerBase(process.env.NEXT_PUBLIC_SERVER_URL || `http://${host}:${fallbackPort}`);
   }, []);
@@ -87,7 +87,7 @@ export default function Host() {
     }
   }
 
-  const shareLink = roomId && hostname ? `http://${hostname}:3000/room/${roomId}` : "";
+  const shareLink = roomId && origin ? `${origin}/room/${roomId}` : "";
 
   return (
     <div className="min-h-screen bg-atmos px-6 py-10">

@@ -25,7 +25,11 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 const rooms = new Map();
 
-app.use(cors({ origin: "*" }));
+app.use(cors({
+  origin: "*",
+  methods: ["GET", "POST"],
+  credentials: true
+}));
 app.use(express.json({ limit: "2mb" }));
 
 app.use((req, res, next) => {
@@ -33,6 +37,10 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
   next();
+});
+
+app.get("/", (req, res) => {
+  res.send("Backend running");
 });
 
 app.get("/health", (req, res) => {
@@ -53,6 +61,9 @@ app.use("/video", express.static(UPLOAD_DIR, staticOptions));
 app.use("/subs", express.static(UPLOAD_DIR, staticOptions));
 
 attachSocketHandlers(io, rooms, { uploadDir: UPLOAD_DIR });
+
+console.log(`[backend] startup on port ${PORT}`);
+console.log(`[backend] upload dir ${UPLOAD_DIR}`);
 
 server.listen(PORT, () => {
   console.log(`Server running on ${PORT}`);

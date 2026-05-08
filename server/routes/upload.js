@@ -51,11 +51,19 @@ function createUploadRouter({ uploadDir, rooms }) {
       const videoFile = req.files && req.files.video ? req.files.video[0] : null;
       const subsFile = req.files && req.files.subs ? req.files.subs[0] : null;
 
+      console.log("[upload] request received", {
+        roomId,
+        hasVideo: Boolean(videoFile),
+        hasSubs: Boolean(subsFile)
+      });
+
       if (!roomId) {
+        console.warn("[upload] rejected: roomId is required");
         return res.status(400).json({ error: "roomId is required" });
       }
 
       if (!videoFile) {
+        console.warn("[upload] rejected: video file is required");
         return res.status(400).json({ error: "video file is required" });
       }
 
@@ -89,6 +97,7 @@ function createUploadRouter({ uploadDir, rooms }) {
             fs.unlinkSync(originalPath);
             room.files.subs = `/subs/${nextName}`;
           } catch (error) {
+            console.error("[upload] subtitle conversion failed", error);
             safeUnlink(originalPath);
             return res.status(500).json({ error: "Subtitle conversion failed" });
           }
@@ -100,6 +109,11 @@ function createUploadRouter({ uploadDir, rooms }) {
       }
 
       rooms.set(roomId, room);
+      console.log("[upload] upload completed", {
+        roomId,
+        videoUrl: room.files.video,
+        subsUrl: room.files.subs
+      });
 
       return res.json({
         roomId,
