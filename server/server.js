@@ -25,6 +25,17 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 
 const rooms = new Map();
 
+// Diagnostic startup logs to help Render troubleshooting
+try {
+  console.log("[backend] server file:", __filename);
+  console.log("[backend] cwd:", process.cwd());
+  console.log("[backend] NODE_ENV:", process.env.NODE_ENV);
+  console.log("[backend] PORT env:", process.env.PORT);
+  console.log("[backend] server.js exists:", fs.existsSync(__filename));
+} catch (err) {
+  console.error("[backend] startup diagnostic failed", err);
+}
+
 app.use(cors({
   origin: "*",
   methods: ["GET", "POST"],
