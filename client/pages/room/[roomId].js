@@ -28,6 +28,7 @@ function Room() {
   const [error, setError] = useState("");
 
   const videoRef = useRef(null);
+  const videoContainerRef = useRef(null);
   const playerContainerRef = useRef(null);
   const trackRef = useRef(null);
   const pendingPlayRef = useRef(null);
@@ -298,15 +299,15 @@ function Room() {
   }
 
   function handleFullscreen() {
-    const video = videoRef.current;
-    if (!video) return;
+    const container = videoContainerRef.current;
+    if (!container) return;
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
       return;
     }
 
-    // Request fullscreen on the video element for proper sizing
-    const request = video.requestFullscreen?.call(video) || video.webkitRequestFullscreen?.call(video) || video.msRequestFullscreen?.call(video) || video.mozRequestFullScreen?.call(video);
+    // Request fullscreen on the container so controls are visible
+    const request = container.requestFullscreen?.call(container) || container.webkitRequestFullscreen?.call(container) || container.msRequestFullscreen?.call(container) || container.mozRequestFullScreen?.call(container);
     if (request?.catch) {
       request.catch(() => {});
     }
@@ -336,7 +337,7 @@ function Room() {
 
         <div className="panel rounded-xl p-4">
           <div ref={playerContainerRef} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16 / 9' }}>
+            <div ref={videoContainerRef} className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16 / 9' }}>
               <video
                 ref={videoRef}
                 src={videoSrc}

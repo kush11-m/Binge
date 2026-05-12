@@ -81,6 +81,19 @@ video::-webkit-media-controls-fullscreen-button {
   display: none !important;
 }
 
+/* Fullscreen container styling */
+div:fullscreen {
+  background: #000000;
+}
+
+div:-webkit-full-screen {
+  background: #000000;
+}
+
+div:-moz-full-screen {
+  background: #000000;
+}
+
 /* Fullscreen video styling */
 video:fullscreen {
   width: 100vw;
