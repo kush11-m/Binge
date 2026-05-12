@@ -313,6 +313,12 @@ function Room() {
     }
   }
 
+  function handlePlayerClick(event) {
+    const controls = event.target.closest?.('.streaming-controls-ui');
+    if (controls) return;
+    handlePlayPause();
+  }
+
   const statusLabel = useMemo(() => {
     if (error) return "Error";
     return status;
@@ -337,7 +343,12 @@ function Room() {
 
         <div className="panel rounded-xl p-4">
           <div ref={playerContainerRef} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div ref={videoContainerRef} className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16 / 9' }}>
+            <div
+              ref={videoContainerRef}
+              className="relative w-full bg-black rounded-xl overflow-hidden"
+              style={{ aspectRatio: '16 / 9' }}
+              onClick={handlePlayerClick}
+            >
               <video
                 ref={videoRef}
                 src={videoSrc}

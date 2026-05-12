@@ -213,7 +213,7 @@ export default function StreamingControls({
   }, [onPlayPause, onFullscreen, videoRef, duration]);
 
   return (
-    <div ref={containerRef} className="absolute inset-0 z-20 pointer-events-none">
+    <div ref={containerRef} className="streaming-controls-ui absolute inset-0 z-20 pointer-events-none">
       {/* center large play when paused */}
       <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${isPlaying ? 'opacity-0 pointer-events-none' : visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
         <div className="bg-gradient-to-b from-black/60 to-black/40 rounded-full p-6">
