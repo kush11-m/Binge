@@ -26,8 +26,6 @@ function Room() {
   const [subsSrc, setSubsSrc] = useState("");
   const [subsEnabled, setSubsEnabled] = useState(true);
   const [error, setError] = useState("");
-  const [debugInfo, setDebugInfo] = useState({ serverBase: "", videoSrc: "", subsSrc: "" });
-  const [debugEvents, setDebugEvents] = useState([]);
 
   const videoRef = useRef(null);
   const playerContainerRef = useRef(null);
@@ -35,12 +33,9 @@ function Room() {
   const pendingPlayRef = useRef(null);
   const lastTimeUpdateRef = useRef(0);
   const skipSyncUntilRef = useRef(0);
-  const debugEventsRef = useRef([]);
 
   function pushDebug(message) {
-    const entry = { t: Date.now(), msg: message };
-    debugEventsRef.current = [entry, ...debugEventsRef.current].slice(0, 40);
-    setDebugEvents(debugEventsRef.current.slice(0));
+    console.log('[room debug]', message);
   }
   const stateRef = useRef({
     currentTime: 0,
@@ -108,24 +103,21 @@ function Room() {
       setError("Room is full (max 4 users). Try another session.");
     });
 
-    socket.on("state", (state) => {
+      socket.on("state", (state) => {
       if (!state) return;
       const now = Date.now();
       if (now < skipSyncUntilRef.current) {
-        debugEventsRef.current = [
-          { t: now, msg: `skipped server state (debounce)` },
-          ...debugEventsRef.current
-        ].slice(0, 40);
+        console.log('[room] skipped server state (debounce)');
         return;
       }
       handleServerState(state);
     });
 
     socket.on("connect", () => {
-      debugEventsRef.current = [{ t: Date.now(), msg: `socket connect` }, ...debugEventsRef.current].slice(0, 40);
+      console.log('[socket] connect');
     });
     socket.on("connect_error", (err) => {
-      debugEventsRef.current = [{ t: Date.now(), msg: `socket connect_error ${String(err)}` }, ...debugEventsRef.current].slice(0, 40);
+      console.log('[socket] connect_error', err);
     });
 
     socket.on("disconnect", () => {
@@ -182,8 +174,6 @@ function Room() {
     if (state.videoUrl) setVideoSrc(`${serverBase}${state.videoUrl}`);
     if (state.subsUrl) setSubsSrc(`${serverBase}${state.subsUrl}`);
     if (!state.subsUrl) setSubsSrc("");
-
-    setDebugInfo({ serverBase, videoSrc: state.videoUrl ? `${serverBase}${state.videoUrl}` : "", subsSrc: state.subsUrl ? `${serverBase}${state.subsUrl}` : "" });
 
     // Only sync if state changed; don't repeatedly seek the same position
     if (stateChanged) {
@@ -401,23 +391,7 @@ function Room() {
                   />
                 )}
               </video>
-              <div style={{ marginTop: 8 }}>
-                <div className="panel rounded-xl p-3 text-sm">
-                  <p className="font-semibold">Debug</p>
-                  <p className="break-words text-xs">Server: {debugInfo.serverBase || serverBase}</p>
-                  <p className="break-words text-xs">Video: {debugInfo.videoSrc || videoSrc || "(none)"}</p>
-                  <p className="break-words text-xs">Subs: {debugInfo.subsSrc || subsSrc || "(none)"}</p>
-                  <div className="mt-2">
-                    <p className="font-semibold">Events</p>
-                    <div className="h-40 overflow-auto text-xs bg-black/10 rounded p-2">
-                      {debugEvents.length === 0 && <div className="text-xs text-white/40">(no events yet)</div>}
-                      {debugEvents.map((e, i) => (
-                        <div key={`${e.t}-${i}`} className="text-xs text-white/70">{new Date(e.t).toLocaleTimeString()}: {e.msg}</div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              </div>
+              {/* Debug console removed; use browser console (console.log) for debug output */}
             </div>
 
             <aside className="lg:sticky lg:top-6 self-start">
