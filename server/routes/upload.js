@@ -4,7 +4,7 @@ const multer = require("multer");
 const express = require("express");
 const { nanoid } = require("nanoid");
 
-const VIDEO_TYPES = new Set(["video/mp4", "video/webm"]);
+const VIDEO_TYPES = new Set(["video/mp4", "video/webm", "video/quicktime", "video/x-matroska", "video/ogg"]);
 const SUB_TYPES = new Set(["text/vtt", "application/x-subrip"]);
 
 function srtToVtt(srtContent) {
@@ -32,21 +32,38 @@ function createUploadRouter({ uploadDir, rooms }) {
   const upload = multer({
     storage,
     fileFilter: (req, file, cb) => {
-      if (file.fieldname === "video" && VIDEO_TYPES.has(file.mimetype)) return cb(null, true);
-      if (file.fieldname === "subs" && (SUB_TYPES.has(file.mimetype) || file.originalname.endsWith(".srt"))) {
-        return cb(null, true);
+      try {
+        const name = (file.originalname || "").toLowerCase();
+        const ext = path.extname(name);
+
+        if (file.fieldname === "video") {
+          const allowedExts = new Set([".mp4", ".m4v", ".mov", ".webm", ".mkv", ".ogv", ".ogg"]);
+          if ((file.mimetype && file.mimetype.startsWith("video/")) || allowedExts.has(ext)) return cb(null, true);
+          return cb(new Error("Unsupported video file type"));
+        }
+
+        if (file.fieldname === "subs") {
+          if (SUB_TYPES.has(file.mimetype) || name.endsWith(".srt") || name.endsWith(".vtt")) return cb(null, true);
+          return cb(new Error("Unsupported subtitle file type"));
+        }
+
+        return cb(null, false);
+      } catch (err) {
+        return cb(err);
       }
-      cb(new Error("Unsupported file type"));
     }
   });
 
-  router.post(
-    "/",
+  router.post("/", (req, res) => {
     upload.fields([
       { name: "video", maxCount: 1 },
       { name: "subs", maxCount: 1 }
-    ]),
-    (req, res) => {
+    ])(req, res, (err) => {
+      if (err) {
+        console.warn("[upload] multer error", err && err.message);
+        return res.status(400).json({ error: err && err.message ? err.message : "Upload failed" });
+      }
+
       const roomId = (req.body.roomId || "").trim();
       const videoFile = req.files && req.files.video ? req.files.video[0] : null;
       const subsFile = req.files && req.files.subs ? req.files.subs[0] : null;
@@ -85,6 +102,49 @@ function createUploadRouter({ uploadDir, rooms }) {
 
       room.files.video = `/video/${videoFile.filename}`;
 
+      // Start asynchronous HLS generation using ffmpeg (if available)
+      try {
+        const originalPath = path.join(uploadDir, videoFile.filename);
+        const baseName = path.basename(videoFile.filename, path.extname(videoFile.filename));
+        const hlsDirName = `${baseName}-hls`;
+        const hlsDir = path.join(uploadDir, hlsDirName);
+        if (!fs.existsSync(hlsDir)) fs.mkdirSync(hlsDir, { recursive: true });
+
+        const hlsIndex = path.join(hlsDir, 'index.m3u8');
+
+        const { spawn } = require('child_process');
+        const ffmpegArgs = [
+          '-i', originalPath,
+          '-c:v', 'libx264',
+          '-c:a', 'aac',
+          '-preset', 'veryfast',
+          '-crf', '28',
+          '-hls_time', '4',
+          '-hls_playlist_type', 'vod',
+          '-hls_segment_filename', path.join(hlsDir, 'segment%03d.ts'),
+          hlsIndex
+        ];
+
+        const ff = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+        ff.stdout.on('data', (d) => console.log('[ffmpeg]', d.toString().trim()));
+        ff.stderr.on('data', (d) => console.log('[ffmpeg]', d.toString().trim()));
+        ff.on('exit', (code, sig) => {
+          if (code === 0) {
+            console.log(`[upload] HLS created at /streams/${hlsDirName}/index.m3u8`);
+            // update room with HLS path if still present
+            const r = rooms.get(roomId);
+            if (r) {
+              r.files.hls = `/streams/${hlsDirName}/index.m3u8`;
+              rooms.set(roomId, r);
+            }
+          } else {
+            console.warn('[upload] ffmpeg exited with', code, sig);
+          }
+        });
+      } catch (err) {
+        console.warn('[upload] ffmpeg spawn failed', err && err.message);
+      }
+
       if (subsFile) {
         const subsExt = path.extname(subsFile.originalname || "").toLowerCase();
         if (subsExt === ".srt") {
@@ -120,8 +180,8 @@ function createUploadRouter({ uploadDir, rooms }) {
         videoUrl: room.files.video,
         subsUrl: room.files.subs
       });
-    }
-  );
+    });
+  });
 
   return router;
 }

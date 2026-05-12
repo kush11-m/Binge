@@ -1,7 +1,9 @@
 import Head from "next/head";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import PlayerControls from "../../components/PlayerControls";
+const VideoCall = dynamic(() => import("../../components/VideoCall"), { ssr: false });
 import StatusPill from "../../components/StatusPill";
 import { useSocket } from "../../hooks/useSocket";
 
@@ -9,8 +11,9 @@ const DRIFT_THRESHOLD = 0.45;
 const DRIFT_SOFT_THRESHOLD = 0.15;
 const DRIFT_INTERVAL = 2500;
 const RATE_ADJUST = 0.04;
+const HARD_JUMP_SECONDS = 1.0;
 
-export default function Room() {
+function Room() {
   const router = useRouter();
   const { roomId } = router.query;
   const resolvedRoomId = Array.isArray(roomId) ? roomId[0] : roomId;
@@ -23,10 +26,22 @@ export default function Room() {
   const [subsSrc, setSubsSrc] = useState("");
   const [subsEnabled, setSubsEnabled] = useState(true);
   const [error, setError] = useState("");
+  const [debugInfo, setDebugInfo] = useState({ serverBase: "", videoSrc: "", subsSrc: "" });
+  const [debugEvents, setDebugEvents] = useState([]);
 
   const videoRef = useRef(null);
+  const playerContainerRef = useRef(null);
   const trackRef = useRef(null);
   const pendingPlayRef = useRef(null);
+  const lastTimeUpdateRef = useRef(0);
+  const skipSyncUntilRef = useRef(0);
+  const debugEventsRef = useRef([]);
+
+  function pushDebug(message) {
+    const entry = { t: Date.now(), msg: message };
+    debugEventsRef.current = [entry, ...debugEventsRef.current].slice(0, 40);
+    setDebugEvents(debugEventsRef.current.slice(0));
+  }
   const stateRef = useRef({
     currentTime: 0,
     isPlaying: false,
@@ -36,13 +51,51 @@ export default function Room() {
   });
   const offsetRef = useRef(0);
   const rateResetRef = useRef(null);
+  const lastSyncStateRef = useRef(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const host = window.location.hostname;
     const fallbackPort = process.env.NEXT_PUBLIC_SERVER_PORT || "3002";
-    setServerBase(process.env.NEXT_PUBLIC_SERVER_URL || `http://${host}:${fallbackPort}`);
+    const base = process.env.NEXT_PUBLIC_SERVER_URL || `http://${host}:${fallbackPort}`;
+    setServerBase(base);
   }, []);
+
+  // Attach HLS.js when an HLS playlist is available for the current video
+  useEffect(() => {
+    let hlsInstance = null;
+    let abort = false;
+    async function tryAttachHls() {
+      if (!videoRef.current || !serverBase || !stateRef.current.videoUrl) return;
+      try {
+        const baseName = stateRef.current.videoUrl.replace(/^\/video\//, '').replace(/\.[^/.]+$/, '');
+        const hlsPath = `${serverBase}/streams/${baseName}-hls/index.m3u8`;
+        // quick HEAD request to see if HLS exists
+        const resp = await fetch(hlsPath, { method: 'HEAD' });
+        if (!resp.ok) return;
+
+        const Hls = (await import('hls.js')).default;
+        if (!Hls || !Hls.isSupported()) return;
+        const video = videoRef.current;
+        hlsInstance = new Hls();
+        hlsInstance.loadSource(hlsPath);
+        hlsInstance.attachMedia(video);
+        pushDebug(`attached hls ${hlsPath}`);
+      } catch (err) {
+        if (!abort) console.warn('HLS attach failed', err && err.message);
+      }
+    }
+
+    tryAttachHls();
+
+    return () => {
+      abort = true;
+      if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+      }
+    };
+  }, [serverBase]);
 
   const socket = useSocket(serverBase);
 
@@ -57,7 +110,22 @@ export default function Room() {
 
     socket.on("state", (state) => {
       if (!state) return;
+      const now = Date.now();
+      if (now < skipSyncUntilRef.current) {
+        debugEventsRef.current = [
+          { t: now, msg: `skipped server state (debounce)` },
+          ...debugEventsRef.current
+        ].slice(0, 40);
+        return;
+      }
       handleServerState(state);
+    });
+
+    socket.on("connect", () => {
+      debugEventsRef.current = [{ t: Date.now(), msg: `socket connect` }, ...debugEventsRef.current].slice(0, 40);
+    });
+    socket.on("connect_error", (err) => {
+      debugEventsRef.current = [{ t: Date.now(), msg: `socket connect_error ${String(err)}` }, ...debugEventsRef.current].slice(0, 40);
     });
 
     socket.on("disconnect", () => {
@@ -77,16 +145,8 @@ export default function Room() {
     track.mode = subsEnabled ? "showing" : "hidden";
   }, [subsEnabled, subsSrc]);
 
-  useEffect(() => {
-    if (!socket || !resolvedRoomId) return;
-
-    const interval = setInterval(() => {
-      socket.emit("sync-request", { roomId: resolvedRoomId });
-      syncVideo(false);
-    }, DRIFT_INTERVAL);
-
-    return () => clearInterval(interval);
-  }, [socket, resolvedRoomId]);
+  // We no longer poll periodically. Syncs are driven only by play/pause/seek actions
+  // emitted by the host. This avoids frequent micro-adjustments and reduces rendering.
 
   function updateOffset(serverTime) {
     const sample = serverTime - Date.now();
@@ -102,6 +162,15 @@ export default function Room() {
 
   function handleServerState(state) {
     updateOffset(state.serverTime || Date.now());
+    
+    // Check if state actually changed; skip redundant syncs while paused
+    const prev = lastSyncStateRef.current;
+    const stateChanged =
+      !prev ||
+      Math.abs((prev.currentTime || 0) - (state.currentTime || 0)) > 0.1 ||
+      prev.isPlaying !== Boolean(state.isPlaying) ||
+      prev.videoUrl !== (state.videoUrl || null);
+
     stateRef.current = {
       currentTime: state.currentTime || 0,
       isPlaying: Boolean(state.isPlaying),
@@ -114,9 +183,22 @@ export default function Room() {
     if (state.subsUrl) setSubsSrc(`${serverBase}${state.subsUrl}`);
     if (!state.subsUrl) setSubsSrc("");
 
-    syncVideo(true);
-    setIsPlaying(Boolean(state.isPlaying));
-    setStatus("Synced");
+    setDebugInfo({ serverBase, videoSrc: state.videoUrl ? `${serverBase}${state.videoUrl}` : "", subsSrc: state.subsUrl ? `${serverBase}${state.subsUrl}` : "" });
+
+    // Only sync if state changed; don't repeatedly seek the same position
+    if (stateChanged) {
+      lastSyncStateRef.current = {
+        currentTime: state.currentTime || 0,
+        isPlaying: Boolean(state.isPlaying),
+        videoUrl: state.videoUrl || null
+      };
+      syncVideo(true);
+      setIsPlaying(Boolean(state.isPlaying));
+      setStatus("Synced");
+      pushDebug(`server state changed: time=${(state.currentTime || 0).toFixed(2)} playing=${!!state.isPlaying}`);
+    } else {
+      pushDebug(`server state unchanged (skipped sync): time=${(state.currentTime || 0).toFixed(2)}`);
+    }
   }
 
   function syncVideo(forceJump) {
@@ -127,6 +209,22 @@ export default function Room() {
     const expected = getExpectedTime();
     const diff = expected - video.currentTime;
     const absDiff = Math.abs(diff);
+
+    // Hard jump if we're out of sync by a lot (host authoritative)
+    if (absDiff > HARD_JUMP_SECONDS) {
+      video.currentTime = expected;
+      video.playbackRate = 1;
+      if (stateRef.current.isPlaying && video.paused) playWhenReady();
+      if (!stateRef.current.isPlaying && !video.paused) video.pause();
+      pushDebug(`hard jump to ${expected.toFixed(2)} (diff ${absDiff.toFixed(2)}s)`);
+      return;
+    }
+
+    // If paused and already close to the expected position, skip seek to avoid stalls
+    if (!stateRef.current.isPlaying && absDiff < 0.25) {
+      if (!video.paused) video.pause();
+      return;
+    }
 
     if (forceJump || absDiff > DRIFT_THRESHOLD) {
       video.currentTime = expected;
@@ -168,6 +266,9 @@ export default function Room() {
     const video = videoRef.current;
     if (!video || !socket || !resolvedRoomId) return;
 
+    // debounce incoming server syncs for a short time after a local action
+    skipSyncUntilRef.current = Date.now() + 1200;
+    pushDebug(`local play/pause triggered (paused=${video.paused})`);
     if (video.paused) {
       playWhenReady();
       socket.emit("state", {
@@ -190,6 +291,9 @@ export default function Room() {
   function handleSeek(time) {
     const video = videoRef.current;
     if (!video || !socket || !resolvedRoomId) return;
+    // debounce incoming server syncs for a short time after a local seek
+    skipSyncUntilRef.current = Date.now() + 1400;
+    pushDebug(`local seek -> ${time.toFixed(2)}`);
     video.currentTime = time;
     socket.emit("state", { roomId: resolvedRoomId, currentTime: time, isPlaying });
     setCurrentTime(time);
@@ -205,12 +309,18 @@ export default function Room() {
 
   function handleFullscreen() {
     const video = videoRef.current;
+    const container = playerContainerRef.current;
     if (!video) return;
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
       return;
     }
-    video.requestFullscreen().catch(() => {});
+
+    const target = container || video;
+    const request = target.requestFullscreen?.call(target) || target.webkitRequestFullscreen?.call(target) || target.msRequestFullscreen?.call(target);
+    if (request?.catch) {
+      request.catch(() => {});
+    }
   }
 
   const statusLabel = useMemo(() => {
@@ -236,30 +346,84 @@ export default function Room() {
         {error && <div className="panel rounded-xl p-4 text-red-400">{error}</div>}
 
         <div className="panel rounded-xl p-4">
-          <video
-            ref={videoRef}
-            src={videoSrc}
-            className="w-full rounded-xl bg-black"
-            playsInline
-            preload="auto"
-            crossOrigin="anonymous"
-            onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-            onLoadedData={() => syncVideo(true)}
-            onTimeUpdate={(event) => setCurrentTime(event.currentTarget.currentTime)}
-            onPlay={() => setIsPlaying(true)}
-            onPause={() => setIsPlaying(false)}
-          >
-            {subsSrc && (
-              <track
-                ref={trackRef}
-                src={subsSrc}
-                kind="subtitles"
-                srcLang="en"
-                label="English"
-                default
-              />
-            )}
-          </video>
+          <div ref={playerContainerRef} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+            <div>
+              <video
+                ref={videoRef}
+                src={videoSrc}
+                className="w-full rounded-xl bg-black"
+                playsInline
+                preload="auto"
+                crossOrigin="anonymous"
+                onError={(e) => {
+                  const mediaError = e.currentTarget?.error;
+                  console.error("Video playback error:", mediaError || e);
+
+                  if (mediaError?.code === 4) {
+                    setError("Video format is not supported by this browser. Use a browser-compatible MP4 (H.264/AAC) or WebM file.");
+                  } else if (mediaError?.code === 2) {
+                    setError("Network error while loading the video. Check the video URL and server connectivity.");
+                  } else if (mediaError?.code === 3) {
+                    setError("Video decoding failed. The file may be corrupted.");
+                  } else {
+                    setError("Video playback error. See console for details.");
+                  }
+                }}
+                onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+                onLoadedData={() => syncVideo(true)}
+                onTimeUpdate={(event) => {
+                  const now = Date.now();
+                  const time = event.currentTarget.currentTime;
+                  if (now - lastTimeUpdateRef.current > 200) {
+                    lastTimeUpdateRef.current = now;
+                    setCurrentTime(time);
+                  }
+                }}
+                onPlay={() => { setIsPlaying(true); pushDebug('video:onPlay'); }}
+                onPause={() => { setIsPlaying(false); pushDebug('video:onPause'); }}
+                onWaiting={() => pushDebug('video:onWaiting')}
+                onStalled={() => pushDebug('video:onStalled')}
+                onAbort={() => pushDebug('video:onAbort')}
+                onCanPlayThrough={() => pushDebug('video:onCanPlayThrough')}
+                onSeeking={() => pushDebug('video:onSeeking')}
+                onSeeked={() => pushDebug('video:onSeeked')}
+                onSuspend={() => pushDebug('video:onSuspend')}
+                onEnded={() => pushDebug('video:onEnded')}
+              >
+                {subsSrc && (
+                  <track
+                    ref={trackRef}
+                    src={subsSrc}
+                    kind="subtitles"
+                    srcLang="en"
+                    label="English"
+                    default
+                  />
+                )}
+              </video>
+              <div style={{ marginTop: 8 }}>
+                <div className="panel rounded-xl p-3 text-sm">
+                  <p className="font-semibold">Debug</p>
+                  <p className="break-words text-xs">Server: {debugInfo.serverBase || serverBase}</p>
+                  <p className="break-words text-xs">Video: {debugInfo.videoSrc || videoSrc || "(none)"}</p>
+                  <p className="break-words text-xs">Subs: {debugInfo.subsSrc || subsSrc || "(none)"}</p>
+                  <div className="mt-2">
+                    <p className="font-semibold">Events</p>
+                    <div className="h-40 overflow-auto text-xs bg-black/10 rounded p-2">
+                      {debugEvents.length === 0 && <div className="text-xs text-white/40">(no events yet)</div>}
+                      {debugEvents.map((e, i) => (
+                        <div key={`${e.t}-${i}`} className="text-xs text-white/70">{new Date(e.t).toLocaleTimeString()}: {e.msg}</div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <aside className="lg:sticky lg:top-6 self-start">
+              <VideoCall socket={socket} roomId={resolvedRoomId} compact />
+            </aside>
+          </div>
         </div>
 
         <PlayerControls
@@ -276,3 +440,5 @@ export default function Room() {
     </div>
   );
 }
+
+export default React.memo(Room);
