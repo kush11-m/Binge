@@ -86,6 +86,7 @@ export default function StreamingControls({
       const cur = video.currentTime || 0;
       const pct = dur ? (cur / dur) * 100 : 0;
       if (progressRef.current) progressRef.current.style.width = `${pct}%`;
+      if (handleRef.current) handleRef.current.style.left = `${pct}%`;
       if (timeRef.current) timeRef.current.textContent = `${fmt(cur)} / ${fmt(dur)}`;
       // buffered
       try {
@@ -120,7 +121,7 @@ export default function StreamingControls({
       document.body.style.userSelect = 'none';
       const p = getPos(e);
       const t = (videoRef.current.duration || duration || 0) * p;
-      if (handleRef.current) handleRef.current.style.transform = `translateX(${p * 100}%) scale(1.05)`;
+      if (handleRef.current) handleRef.current.style.left = `${p * 100}%`;
       if (progressRef.current) progressRef.current.style.width = `${p * 100}%`;
     }
 
@@ -128,7 +129,7 @@ export default function StreamingControls({
       if (!draggingRef.current) return;
       const p = getPos(e);
       const t = (videoRef.current.duration || duration || 0) * p;
-      if (handleRef.current) handleRef.current.style.transform = `translateX(${p * 100}%) scale(1.05)`;
+      if (handleRef.current) handleRef.current.style.left = `${p * 100}%`;
       if (progressRef.current) progressRef.current.style.width = `${p * 100}%`;
       if (timeRef.current) timeRef.current.textContent = `${fmt(t)} / ${fmt(videoRef.current.duration || duration || 0)}`;
     }
@@ -185,16 +186,30 @@ export default function StreamingControls({
     return () => video.removeEventListener('dblclick', onDbl);
   }, [videoRef, duration]);
 
-  // keyboard shortcuts
+  // keyboard shortcuts and video click-to-play
   useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    
+    function onClick(e) {
+      // Prevent click from triggering if clicking on controls area
+      if (e.target !== video) return;
+      onPlayPause();
+    }
+    
     function onKey(e) {
       if (e.code === 'Space') { e.preventDefault(); onPlayPause(); }
       if (e.key === 'f' || e.key === 'F') { onFullscreen(); }
       if (e.key === 'ArrowRight') { const v = videoRef.current; if (v) v.currentTime = Math.min((v.duration||duration||0), (v.currentTime||0) + 5); }
       if (e.key === 'ArrowLeft') { const v = videoRef.current; if (v) v.currentTime = Math.max(0, (v.currentTime||0) - 5); }
     }
+    
+    video.addEventListener('click', onClick);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    return () => {
+      video.removeEventListener('click', onClick);
+      window.removeEventListener('keydown', onKey);
+    };
   }, [onPlayPause, onFullscreen, videoRef, duration]);
 
   return (
@@ -214,7 +229,7 @@ export default function StreamingControls({
           <div className="w-full relative h-3 rounded overflow-hidden ss-track cursor-pointer group hover:h-4 transition-all" style={{ background: 'rgba(255,255,255,0.06)' }}>
             <div ref={bufferRef} className="absolute left-0 top-0 bottom-0 bg-white/20" style={{ width: '0%' }} />
             <div ref={progressRef} className="absolute left-0 top-0 bottom-0 bg-[rgb(0,255,136)] shadow-[inset_0_0_6px_rgba(0,255,136,0.2)]" style={{ width: '0%' }} />
-            <div ref={handleRef} className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_rgba(0,255,136,0.8)] transform opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '0%', transform: 'translateX(-50%)' }} />
+            <div ref={handleRef} className=\"absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_rgba(0,255,136,0.8)] transform opacity-0 group-hover:opacity-100 transition-opacity\" style={{ left: '0%', transform: 'translate(-50%, -50%)' }} />
           </div>
 
           <div className="flex items-center justify-between gap-3">
