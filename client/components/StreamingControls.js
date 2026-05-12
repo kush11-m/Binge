@@ -141,7 +141,7 @@ export default function StreamingControls({
       const t = (videoRef.current.duration || duration || 0) * p;
       onSeek(t);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => { if (!menuOpenRef.current) setVisible(false); }, 2500);
+      hideTimerRef.current = setTimeout(() => { if (!speedMenuOpen) setVisible(false); }, 2500);
     }
 
     const track = container.querySelector('.ss-track');
@@ -236,7 +236,7 @@ export default function StreamingControls({
               <div className="relative pointer-events-auto">
                 <button onClick={() => setSpeedMenuOpen(!speedMenuOpen)} className={`px-2 py-1 rounded text-sm transition ${speedMenuOpen ? 'text-neon' : 'text-white/80'}`}>{speed}x</button>
                 {speedMenuOpen && (
-                  <div className="absolute right-0 mt-2 bg-black/80 border border-white/20 rounded shadow-lg p-1 z-50">
+                  <div className="absolute right-0 bottom-full mb-2 bg-black/80 border border-white/20 rounded shadow-lg p-1 z-50 min-w-[80px]">
                     {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(s => (
                       <button key={s} onClick={() => { setSpeed(s); setSpeedMenuOpen(false); }} className={`block w-full px-3 py-1 rounded text-sm text-left transition ${s===speed? 'text-neon bg-black/60':'text-white/70 hover:text-white'}`}>{s}x</button>
                     ))}
