@@ -112,35 +112,54 @@ function createUploadRouter({ uploadDir, rooms }) {
 
         const hlsIndex = path.join(hlsDir, 'index.m3u8');
 
-        const { spawn } = require('child_process');
-        const ffmpegArgs = [
-          '-i', originalPath,
-          '-c:v', 'libx264',
-          '-c:a', 'aac',
-          '-preset', 'veryfast',
-          '-crf', '28',
-          '-hls_time', '4',
-          '-hls_playlist_type', 'vod',
-          '-hls_segment_filename', path.join(hlsDir, 'segment%03d.ts'),
-          hlsIndex
-        ];
+        const { spawn, spawnSync } = require('child_process');
 
-        const ff = spawn('ffmpeg', ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
-        ff.stdout.on('data', (d) => console.log('[ffmpeg]', d.toString().trim()));
-        ff.stderr.on('data', (d) => console.log('[ffmpeg]', d.toString().trim()));
-        ff.on('exit', (code, sig) => {
-          if (code === 0) {
-            console.log(`[upload] HLS created at /streams/${hlsDirName}/index.m3u8`);
-            // update room with HLS path if still present
-            const r = rooms.get(roomId);
-            if (r) {
-              r.files.hls = `/streams/${hlsDirName}/index.m3u8`;
-              rooms.set(roomId, r);
-            }
-          } else {
-            console.warn('[upload] ffmpeg exited with', code, sig);
+        // locate ffmpeg: respect FFMPEG_PATH env var, otherwise try `which ffmpeg`
+        let ffmpegPath = process.env.FFMPEG_PATH || null;
+        if (!ffmpegPath) {
+          try {
+            const which = spawnSync('which', ['ffmpeg']);
+            if (which && which.status === 0) ffmpegPath = which.stdout.toString().trim();
+          } catch (e) {
+            ffmpegPath = null;
           }
-        });
+        }
+
+        if (!ffmpegPath) {
+          console.warn('[upload] ffmpeg not found on PATH; skipping HLS generation');
+        } else {
+          const ffmpegArgs = [
+            '-i', originalPath,
+            '-c:v', 'libx264',
+            '-c:a', 'aac',
+            '-preset', 'veryfast',
+            '-crf', '28',
+            '-hls_time', '4',
+            '-hls_playlist_type', 'vod',
+            '-hls_segment_filename', path.join(hlsDir, 'segment%03d.ts'),
+            hlsIndex
+          ];
+
+          const ff = spawn(ffmpegPath, ffmpegArgs, { stdio: ['ignore', 'pipe', 'pipe'] });
+          ff.on('error', (err) => {
+            console.warn('[upload] ffmpeg process error', err && err.message);
+          });
+          ff.stdout.on('data', (d) => console.log('[ffmpeg]', d.toString().trim()));
+          ff.stderr.on('data', (d) => console.log('[ffmpeg]', d.toString().trim()));
+          ff.on('exit', (code, sig) => {
+            if (code === 0) {
+              console.log(`[upload] HLS created at /streams/${hlsDirName}/index.m3u8`);
+              // update room with HLS path if still present
+              const r = rooms.get(roomId);
+              if (r) {
+                r.files.hls = `/streams/${hlsDirName}/index.m3u8`;
+                rooms.set(roomId, r);
+              }
+            } else {
+              console.warn('[upload] ffmpeg exited with', code, sig);
+            }
+          });
+        }
       } catch (err) {
         console.warn('[upload] ffmpeg spawn failed', err && err.message);
       }
