@@ -25,8 +25,8 @@ export default function StreamingControls({
   const rafRef = useRef(null);
   const hideTimerRef = useRef(null);
   const draggingRef = useRef(false);
-  const menuOpenRef = useRef(false);
   const [visible, setVisible] = useState(true);
+  const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [speed, setSpeed] = useState(() => {
     try { return Number(localStorage.getItem('ss-speed')) || 1; } catch { return 1; }
   });
@@ -49,11 +49,11 @@ export default function StreamingControls({
     if (!el) return;
 
     function show() {
-      if (menuOpenRef.current || draggingRef.current) return setVisible(true);
+      if (speedMenuOpen || draggingRef.current) return setVisible(true);
       setVisible(true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
       hideTimerRef.current = setTimeout(() => {
-        if (!draggingRef.current && !menuOpenRef.current) setVisible(false);
+        if (!draggingRef.current && !speedMenuOpen) setVisible(false);
       }, 2500);
     }
 
@@ -74,7 +74,7 @@ export default function StreamingControls({
       document.removeEventListener('keydown', onActivity);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, []);
+  }, [speedMenuOpen]);
 
   // progress animation loop - update DOM directly to avoid rerenders
   useEffect(() => {
@@ -234,15 +234,17 @@ export default function StreamingControls({
               <button onClick={() => onToggleSubs()} className={`px-2 py-1 rounded text-sm ${subsEnabled ? 'text-neon' : 'text-white/70'} pointer-events-auto`}>CC</button>
 
               <div className="relative pointer-events-auto">
-                <button onClick={() => menuOpenRef.current = !menuOpenRef.current} className="px-2 py-1 rounded text-sm text-white/80">{speed}x</button>
-                <div className="absolute right-0 mt-2 bg-black/80 rounded shadow-lg p-2 hidden" aria-hidden>
-                  {[0.5,0.75,1,1.25,1.5,2].map(s => (
-                    <div key={s} onClick={() => setSpeed(s)} className={`px-2 py-1 rounded text-sm ${s===speed? 'text-neon':'text-white/80'}`}>{s}x</div>
-                  ))}
-                </div>
+                <button onClick={() => setSpeedMenuOpen(!speedMenuOpen)} className={`px-2 py-1 rounded text-sm transition ${speedMenuOpen ? 'text-neon' : 'text-white/80'}`}>{speed}x</button>
+                {speedMenuOpen && (
+                  <div className="absolute right-0 mt-2 bg-black/80 border border-white/20 rounded shadow-lg p-1 z-50">
+                    {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(s => (
+                      <button key={s} onClick={() => { setSpeed(s); setSpeedMenuOpen(false); }} className={`block w-full px-3 py-1 rounded text-sm text-left transition ${s===speed? 'text-neon bg-black/60':'text-white/70 hover:text-white'}`}>{s}x</button>
+                    ))}
+                  </div>
+                )}
               </div>
 
-              <button onClick={onFullscreen} className="px-2 py-1 rounded text-sm text-white/80 pointer-events-auto">⤢</button>
+              <button onClick={onFullscreen} className="px-2 py-1 rounded text-sm text-white/80 pointer-events-auto leading-none">⛶</button>
             </div>
           </div>
         </div>

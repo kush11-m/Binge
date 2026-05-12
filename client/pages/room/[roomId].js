@@ -341,6 +341,7 @@ function Room() {
                 ref={videoRef}
                 src={videoSrc}
                 className="w-full h-full object-contain bg-black"
+                controls={false}
                 playsInline
                 preload="auto"
                 crossOrigin="anonymous"
