@@ -211,10 +211,10 @@ export default function StreamingControls({
       {/* bottom controls */}
       <div className={`absolute left-4 right-4 bottom-4 rounded-xl pointer-events-auto transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
         <div className="backdrop-blur-sm bg-black/60 border border-black/30 rounded-xl p-3 shadow-lg flex flex-col gap-2">
-          <div className="w-full relative h-3 rounded overflow-hidden ss-track" style={{ background: 'rgba(255,255,255,0.06)' }}>
+          <div className="w-full relative h-3 rounded overflow-hidden ss-track cursor-pointer group hover:h-4 transition-all" style={{ background: 'rgba(255,255,255,0.06)' }}>
             <div ref={bufferRef} className="absolute left-0 top-0 bottom-0 bg-white/20" style={{ width: '0%' }} />
-            <div ref={progressRef} className="absolute left-0 top-0 bottom-0 bg-[rgb(0,255,136)] transition-width duration-150" style={{ width: '0%' }} />
-            <div ref={handleRef} className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-lg transform" style={{ left: '0%', transform: 'translateX(0%)' }} />
+            <div ref={progressRef} className="absolute left-0 top-0 bottom-0 bg-[rgb(0,255,136)] shadow-[inset_0_0_6px_rgba(0,255,136,0.2)]" style={{ width: '0%' }} />
+            <div ref={handleRef} className="absolute top-1/2 -translate-y-1/2 w-3 h-3 bg-white rounded-full shadow-[0_0_10px_rgba(0,255,136,0.8)] transform opacity-0 group-hover:opacity-100 transition-opacity" style={{ left: '0%', transform: 'translateX(-50%)' }} />
           </div>
 
           <div className="flex items-center justify-between gap-3">

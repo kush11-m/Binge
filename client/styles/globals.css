@@ -39,3 +39,18 @@ video::cue {
   font-family: "Space Grotesk", system-ui, sans-serif;
   font-size: 1rem;
 }
+
+/* Fullscreen video styling */
+video:fullscreen {
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+  background: #000000;
+}
+
+video:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  object-fit: contain;
+  background: #000000;
+}

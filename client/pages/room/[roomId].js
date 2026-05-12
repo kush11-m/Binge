@@ -299,15 +299,14 @@ function Room() {
 
   function handleFullscreen() {
     const video = videoRef.current;
-    const container = playerContainerRef.current;
     if (!video) return;
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
       return;
     }
 
-    const target = container || video;
-    const request = target.requestFullscreen?.call(target) || target.webkitRequestFullscreen?.call(target) || target.msRequestFullscreen?.call(target);
+    // Request fullscreen on the video element for proper sizing
+    const request = video.requestFullscreen?.call(video) || video.webkitRequestFullscreen?.call(video) || video.msRequestFullscreen?.call(video) || video.mozRequestFullScreen?.call(video);
     if (request?.catch) {
       request.catch(() => {});
     }
@@ -337,11 +336,11 @@ function Room() {
 
         <div className="panel rounded-xl p-4">
           <div ref={playerContainerRef} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div>
+            <div className="relative w-full bg-black rounded-xl overflow-hidden" style={{ aspectRatio: '16 / 9' }}>
               <video
                 ref={videoRef}
                 src={videoSrc}
-                className="w-full rounded-xl bg-black"
+                className="w-full h-full object-contain bg-black"
                 playsInline
                 preload="auto"
                 crossOrigin="anonymous"
@@ -392,6 +391,16 @@ function Room() {
                 )}
               </video>
               {/* Debug console removed; use browser console (console.log) for debug output */}
+              <StreamingControls
+                videoRef={videoRef}
+                isPlaying={isPlaying}
+                duration={duration}
+                onPlayPause={handlePlayPause}
+                onSeek={handleSeek}
+                onToggleSubs={handleToggleSubs}
+                subsEnabled={subsEnabled}
+                onFullscreen={handleFullscreen}
+              />
             </div>
 
             <aside className="lg:sticky lg:top-6 self-start">
@@ -399,17 +408,6 @@ function Room() {
             </aside>
           </div>
         </div>
-
-        <StreamingControls
-          videoRef={videoRef}
-          isPlaying={isPlaying}
-          duration={duration}
-          onPlayPause={handlePlayPause}
-          onSeek={handleSeek}
-          onToggleSubs={handleToggleSubs}
-          subsEnabled={subsEnabled}
-          onFullscreen={handleFullscreen}
-        />
       </div>
     </div>
   );
