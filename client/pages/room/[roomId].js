@@ -319,6 +319,20 @@ function Room() {
     handlePlayPause();
   }
 
+  useEffect(() => {
+    const container = videoContainerRef.current;
+    if (!container) return;
+
+    function onContainerClick(event) {
+      const controls = event.target.closest?.('.streaming-controls-ui');
+      if (controls) return;
+      handlePlayPause();
+    }
+
+    container.addEventListener('click', onContainerClick);
+    return () => container.removeEventListener('click', onContainerClick);
+  }, [handlePlayPause]);
+
   const statusLabel = useMemo(() => {
     if (error) return "Error";
     return status;
@@ -347,7 +361,6 @@ function Room() {
               ref={videoContainerRef}
               className="relative w-full bg-black rounded-xl overflow-hidden"
               style={{ aspectRatio: '16 / 9' }}
-              onClick={handlePlayerClick}
             >
               <video
                 ref={videoRef}
