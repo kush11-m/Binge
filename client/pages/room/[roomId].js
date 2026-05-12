@@ -2,7 +2,7 @@ import Head from "next/head";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/router";
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import PlayerControls from "../../components/PlayerControls";
+import StreamingControls from "../../components/StreamingControls";
 const VideoCall = dynamic(() => import("../../components/VideoCall"), { ssr: false });
 import StatusPill from "../../components/StatusPill";
 import { useSocket } from "../../hooks/useSocket";
@@ -400,9 +400,9 @@ function Room() {
           </div>
         </div>
 
-        <PlayerControls
+        <StreamingControls
+          videoRef={videoRef}
           isPlaying={isPlaying}
-          currentTime={currentTime}
           duration={duration}
           onPlayPause={handlePlayPause}
           onSeek={handleSeek}
