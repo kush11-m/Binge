@@ -9,12 +9,12 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-atmos flex items-center justify-center px-6">
       <Head>
-        <title>SyncStream</title>
+        <title>Binge</title>
       </Head>
       <div className="max-w-lg w-full text-center space-y-8 animate-rise">
         <div className="space-y-2">
           <p className="text-sm uppercase tracking-[0.5em] text-white/40">LAN Sync Video</p>
-          <h1 className="text-5xl font-semibold neon-text">SyncStream</h1>
+          <h1 className="text-5xl font-semibold neon-text">Binge</h1>
           <p className="text-white/60">Host once. Watch together. Zero drift.</p>
         </div>
 

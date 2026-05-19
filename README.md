@@ -1,4 +1,4 @@
-# SyncStream
+# Binge
 
 LAN-synced video streaming for up to 4 users.
 

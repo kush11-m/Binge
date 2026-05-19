@@ -92,13 +92,13 @@ export default function Host() {
   return (
     <div className="min-h-screen bg-atmos px-6 py-10">
       <Head>
-        <title>Host Session - SyncStream</title>
+        <title>Host Session - Binge</title>
       </Head>
 
       <div className="max-w-4xl mx-auto space-y-8">
         <header className="flex flex-col gap-3">
           <p className="text-sm uppercase tracking-[0.4em] text-white/40">Host Dashboard</p>
-          <h1 className="text-4xl font-semibold neon-text">Create the Sync</h1>
+          <h1 className="text-4xl font-semibold neon-text">Create the Binge</h1>
           <p className="text-white/60">Upload your video, share the link, and start streaming.</p>
         </header>
 
@@ -157,7 +157,7 @@ export default function Host() {
               </button>
             </div>
             <p className="text-xs text-white/50">
-              Joiners open SyncStream on the host link and enter the room code.
+              Joiners open Binge on the host link and enter the room code.
             </p>
           </aside>
         </div>

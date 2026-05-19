@@ -183,6 +183,16 @@ function attachSocketHandlers(io, rooms, { uploadDir }) {
       });
     });
 
+    socket.on("broadcast-peer-status", ({ roomId, micEnabled, cameraEnabled, userName }) => {
+      if (!roomId) return;
+      socket.to(`call:${roomId}`).emit("peer-status", {
+        peerId: socket.id,
+        micEnabled,
+        cameraEnabled,
+        userName
+      });
+    });
+
     socket.on("disconnect", () => {
       const roomId = socket.data.roomId;
       if (!roomId) return;

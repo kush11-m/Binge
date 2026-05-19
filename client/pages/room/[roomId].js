@@ -26,6 +26,7 @@ function Room() {
   const [subsSrc, setSubsSrc] = useState("");
   const [subsEnabled, setSubsEnabled] = useState(true);
   const [error, setError] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const videoRef = useRef(null);
   const videoContainerRef = useRef(null);
@@ -299,7 +300,7 @@ function Room() {
   }
 
   function handleFullscreen() {
-    const container = videoContainerRef.current;
+    const container = playerContainerRef.current || videoContainerRef.current;
     if (!container) return;
     if (document.fullscreenElement) {
       document.exitFullscreen().catch(() => {});
@@ -313,25 +314,83 @@ function Room() {
     }
   }
 
+  // Keep a body-level class in sync with fullscreen state to avoid relying on vendor pseudo-classes
+  useEffect(() => {
+    function onFsChange() {
+      const fsEl = document.fullscreenElement || document.webkitFullscreenElement || document.mozFullScreenElement || document.msFullscreenElement;
+      const nextFullscreen = Boolean(fsEl);
+      setIsFullscreen(nextFullscreen);
+      if (nextFullscreen) {
+        document.body.classList.add('in-fullscreen');
+      } else {
+        document.body.classList.remove('in-fullscreen');
+      }
+    }
+
+    document.addEventListener('fullscreenchange', onFsChange);
+    document.addEventListener('webkitfullscreenchange', onFsChange);
+    document.addEventListener('mozfullscreenchange', onFsChange);
+    document.addEventListener('MSFullscreenChange', onFsChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', onFsChange);
+      document.removeEventListener('webkitfullscreenchange', onFsChange);
+      document.removeEventListener('mozfullscreenchange', onFsChange);
+      document.removeEventListener('MSFullscreenChange', onFsChange);
+      document.body.classList.remove('in-fullscreen');
+    };
+  }, []);
+
   function handlePlayerClick(event) {
     const controls = event.target.closest?.('.streaming-controls-ui');
     if (controls) return;
     handlePlayPause();
   }
 
+  // Attach click handler directly to video element for reliable click-to-play/pause
   useEffect(() => {
-    const container = videoContainerRef.current;
-    if (!container) return;
+    const video = videoRef.current;
+    if (!video || !socket || !resolvedRoomId) return;
 
-    function onContainerClick(event) {
-      const controls = event.target.closest?.('.streaming-controls-ui');
-      if (controls) return;
-      handlePlayPause();
+    function onVideoClick(event) {
+      // Toggle play/pause with a click
+      const videoEl = videoRef.current;
+      if (!videoEl) return;
+      
+      // debounce incoming server syncs for a short time after local action
+      skipSyncUntilRef.current = Date.now() + 1200;
+      pushDebug(`click-to-toggle triggered (paused=${videoEl.paused})`);
+      
+      if (videoEl.paused) {
+        // Play the video
+        const playPromise = videoEl.play();
+        if (playPromise !== undefined) {
+          playPromise.catch((err) => {
+            console.error("Play failed:", err);
+          });
+        }
+        socket.emit("state", {
+          roomId: resolvedRoomId,
+          currentTime: videoEl.currentTime,
+          isPlaying: true
+        });
+        setIsPlaying(true);
+      } else {
+        // Pause the video
+        videoEl.pause();
+        socket.emit("state", {
+          roomId: resolvedRoomId,
+          currentTime: videoEl.currentTime,
+          isPlaying: false
+        });
+        setIsPlaying(false);
+      }
     }
 
-    container.addEventListener('click', onContainerClick);
-    return () => container.removeEventListener('click', onContainerClick);
-  }, [handlePlayPause]);
+    // Use capture phase to catch clicks before anything else can intercept
+    video.addEventListener('click', onVideoClick, true);
+    return () => video.removeEventListener('click', onVideoClick, true);
+  }, [resolvedRoomId, socket]);
 
   const statusLabel = useMemo(() => {
     if (error) return "Error";
@@ -339,99 +398,131 @@ function Room() {
   }, [status, error]);
 
   return (
-    <div className="min-h-screen bg-atmos px-6 py-10">
+    <div className={isFullscreen ? "min-h-screen bg-black text-white" : "room-page min-h-screen bg-atmos px-6 py-10"}>
       <Head>
-        <title>Room {resolvedRoomId} - SyncStream</title>
+        <title>Room {resolvedRoomId} - Binge</title>
       </Head>
 
-      <div className="max-w-5xl mx-auto space-y-6">
-        <header className="flex flex-wrap items-center justify-between gap-4">
+      <div className={isFullscreen ? "mx-auto w-full" : "room-page-shell max-w-5xl mx-auto space-y-6"}>
+        {!isFullscreen && (
+          <header className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-sm uppercase tracking-[0.4em] text-white/40">Viewer</p>
             <h1 className="text-3xl font-semibold neon-text">Room {resolvedRoomId}</h1>
           </div>
           <StatusPill label={statusLabel} />
-        </header>
+          </header>
+        )}
 
         {error && <div className="panel rounded-xl p-4 text-red-400">{error}</div>}
 
-        <div className="panel rounded-xl p-4">
-          <div ref={playerContainerRef} className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div
-              ref={videoContainerRef}
-              className="relative w-full bg-black rounded-xl overflow-hidden"
-              style={{ aspectRatio: '16 / 9' }}
-            >
-              <video
-                ref={videoRef}
-                src={videoSrc}
-                className="w-full h-full object-contain bg-black"
-                controls={false}
-                playsInline
-                preload="auto"
-                crossOrigin="anonymous"
-                onError={(e) => {
-                  const mediaError = e.currentTarget?.error;
-                  console.error("Video playback error:", mediaError || e);
-
-                  if (mediaError?.code === 4) {
-                    setError("Video format is not supported by this browser. Use a browser-compatible MP4 (H.264/AAC) or WebM file.");
-                  } else if (mediaError?.code === 2) {
-                    setError("Network error while loading the video. Check the video URL and server connectivity.");
-                  } else if (mediaError?.code === 3) {
-                    setError("Video decoding failed. The file may be corrupted.");
-                  } else {
-                    setError("Video playback error. See console for details.");
-                  }
-                }}
-                onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
-                onLoadedData={() => syncVideo(true)}
-                onTimeUpdate={(event) => {
-                  const now = Date.now();
-                  const time = event.currentTarget.currentTime;
-                  if (now - lastTimeUpdateRef.current > 200) {
-                    lastTimeUpdateRef.current = now;
-                    setCurrentTime(time);
-                  }
-                }}
-                onPlay={() => { setIsPlaying(true); pushDebug('video:onPlay'); }}
-                onPause={() => { setIsPlaying(false); pushDebug('video:onPause'); }}
-                onWaiting={() => pushDebug('video:onWaiting')}
-                onStalled={() => pushDebug('video:onStalled')}
-                onAbort={() => pushDebug('video:onAbort')}
-                onCanPlayThrough={() => pushDebug('video:onCanPlayThrough')}
-                onSeeking={() => pushDebug('video:onSeeking')}
-                onSeeked={() => pushDebug('video:onSeeked')}
-                onSuspend={() => pushDebug('video:onSuspend')}
-                onEnded={() => pushDebug('video:onEnded')}
+        <div className={isFullscreen ? "relative min-h-screen" : "panel rounded-xl p-4"}>
+          <div
+            ref={playerContainerRef}
+            className={isFullscreen ? "relative min-h-screen" : "room-layout grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px] relative"}
+          >
+            {isFullscreen && (
+              <div className="pointer-events-none absolute left-0 right-0 top-5 z-40">
+                <div className="mx-auto flex w-[min(90vw,1200px)] items-center justify-between rounded-full border border-white/10 bg-black/40 px-4 py-2 backdrop-blur">
+                  <button
+                    onClick={() => handleFullscreen()}
+                    className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/10 bg-black/50 px-3 py-1 text-xs text-white/80 transition hover:text-white"
+                    title="Exit Fullscreen"
+                  >
+                    ⛶ Exit
+                  </button>
+                  <div className="flex items-center gap-3 text-sm">
+                    <span className="text-[#39FF88] font-semibold tracking-wide">Binge</span>
+                    <span className="rounded-full border border-white/10 bg-black/50 px-3 py-1 text-xs text-white/80">Room: {resolvedRoomId}</span>
+                  </div>
+                  <div className="pointer-events-auto rounded-full border border-white/10 bg-black/50 px-3 py-1 text-xs text-white/80">4</div>
+                </div>
+              </div>
+            )}
+            <div className={isFullscreen ? "relative min-h-screen" : "contents"}>
+              {isFullscreen && (
+                <aside className="absolute right-0 top-0 bottom-0 w-[240px] border-l border-white/10 bg-black/20 p-3 backdrop-blur-xl">
+                  <VideoCall socket={socket} roomId={resolvedRoomId} compact fullscreen={isFullscreen} />
+                </aside>
+              )}
+              <div
+                ref={videoContainerRef}
+                className={isFullscreen ? "fullscreen-stage relative mr-[240px] w-[calc(100vw-240px)] h-screen flex items-center justify-center" : "fullscreen-stage relative w-full rounded-2xl bg-black overflow-hidden"}
               >
-                {subsSrc && (
-                  <track
-                    ref={trackRef}
-                    src={subsSrc}
-                    kind="subtitles"
-                    srcLang="en"
-                    label="English"
-                    default
-                  />
-                )}
-              </video>
-              {/* Debug console removed; use browser console (console.log) for debug output */}
-              <StreamingControls
-                videoRef={videoRef}
-                isPlaying={isPlaying}
-                duration={duration}
-                onPlayPause={handlePlayPause}
-                onSeek={handleSeek}
-                onToggleSubs={handleToggleSubs}
-                subsEnabled={subsEnabled}
-                onFullscreen={handleFullscreen}
-              />
-            </div>
+                <div className="relative w-[min(calc(100vw-320px),1320px)] max-h-[80vh] aspect-video rounded-2xl bg-black/90 shadow-[0_30px_80px_rgba(0,0,0,0.6)] overflow-hidden">
+                  <video
+                    ref={videoRef}
+                    src={videoSrc}
+                    className="h-full w-full object-contain bg-black"
+                  controls={false}
+                  playsInline
+                  preload="auto"
+                  crossOrigin="anonymous"
+                  onError={(e) => {
+                    const mediaError = e.currentTarget?.error;
+                    console.error("Video playback error:", mediaError || e);
 
-            <aside className="lg:sticky lg:top-6 self-start">
-              <VideoCall socket={socket} roomId={resolvedRoomId} compact />
-            </aside>
+                    if (mediaError?.code === 4) {
+                      setError("Video format is not supported by this browser. Use a browser-compatible MP4 (H.264/AAC) or WebM file.");
+                    } else if (mediaError?.code === 2) {
+                      setError("Network error while loading the video. Check the video URL and server connectivity.");
+                    } else if (mediaError?.code === 3) {
+                      setError("Video decoding failed. The file may be corrupted.");
+                    } else {
+                      setError("Video playback error. See console for details.");
+                    }
+                  }}
+                  onLoadedMetadata={(event) => setDuration(event.currentTarget.duration || 0)}
+                  onLoadedData={() => syncVideo(true)}
+                  onTimeUpdate={(event) => {
+                    const now = Date.now();
+                    const time = event.currentTarget.currentTime;
+                    if (now - lastTimeUpdateRef.current > 200) {
+                      lastTimeUpdateRef.current = now;
+                      setCurrentTime(time);
+                    }
+                  }}
+                  onPlay={() => { setIsPlaying(true); pushDebug('video:onPlay'); }}
+                  onPause={() => { setIsPlaying(false); pushDebug('video:onPause'); }}
+                  onWaiting={() => pushDebug('video:onWaiting')}
+                  onStalled={() => pushDebug('video:onStalled')}
+                  onAbort={() => pushDebug('video:onAbort')}
+                  onCanPlayThrough={() => pushDebug('video:onCanPlayThrough')}
+                  onSeeking={() => pushDebug('video:onSeeking')}
+                  onSeeked={() => pushDebug('video:onSeeked')}
+                  onSuspend={() => pushDebug('video:onSuspend')}
+                  onEnded={() => pushDebug('video:onEnded')}
+                  >
+                    {subsSrc && (
+                      <track
+                        ref={trackRef}
+                        src={subsSrc}
+                        kind="subtitles"
+                        srcLang="en"
+                        label="English"
+                        default
+                      />
+                    )}
+                  </video>
+                  <StreamingControls
+                    videoRef={videoRef}
+                    isPlaying={isPlaying}
+                    duration={duration}
+                    onPlayPause={handlePlayPause}
+                    onSeek={handleSeek}
+                    onToggleSubs={handleToggleSubs}
+                    subsEnabled={subsEnabled}
+                    onFullscreen={handleFullscreen}
+                    fullscreen={isFullscreen}
+                  />
+                </div>
+              </div>
+              {!isFullscreen && (
+                <aside className="lg:sticky lg:top-6 self-start">
+                  <VideoCall socket={socket} roomId={resolvedRoomId} compact fullscreen={isFullscreen} />
+                </aside>
+              )}
+            </div>
           </div>
         </div>
       </div>
