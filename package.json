@@ -5,7 +5,10 @@
     "dev": "npm --prefix server run dev & npm --prefix client run dev & wait",
     "dev:server": "npm --prefix server run dev",
     "dev:client": "npm --prefix client run dev",
-    "build": "npm --prefix client run build"
+    "build": "npm --prefix client run build",
+    "test": "npm --prefix server test",
+    "verify:internet-env": "node scripts/verify-internet-env.js",
+    "verify:deploy": "npm --prefix server run verify:deploy --"
   },
   "dependencies": {
     "hls.js": "^1.6.16"

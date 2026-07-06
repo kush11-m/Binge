@@ -1,6 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { getIceServers, hasTurnServer } from "../services/iceServers";
 
-const DEFAULT_ICE_SERVERS = [{ urls: "stun:stun.l.google.com:19302" }];
+const CALL_QUALITY = {
+  standard: {
+    label: "Standard",
+    video: { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 30 } },
+    videoBitrate: 1_500_000,
+    audioBitrate: 96_000
+  },
+  high: {
+    label: "High",
+    video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30, max: 30 } },
+    videoBitrate: 3_000_000,
+    audioBitrate: 128_000
+  },
+  studio: {
+    label: "Studio",
+    video: { width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 60, max: 60 } },
+    videoBitrate: 5_000_000,
+    audioBitrate: 160_000
+  }
+};
 
 function attachStream(videoElement, stream) {
   if (!videoElement) return;
@@ -9,11 +29,12 @@ function attachStream(videoElement, stream) {
   }
 }
 
-export default function VideoCall({ socket, roomId, compact = false, fullscreen = false }) {
+export default function VideoCall({ socket, roomId, compact = false, fullscreen = false, onActiveChange = (_active) => {} }) {
   const localVideoRef = useRef(null);
   const remoteVideoRefs = useRef(new Map());
   const localStreamRef = useRef(null);
   const peerConnectionsRef = useRef(new Map());
+  const reconnectTimersRef = useRef(new Map());
   const joinedCallRef = useRef(false);
   const mountedRef = useRef(true);
 
@@ -24,14 +45,17 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
   const [cameraEnabled, setCameraEnabled] = useState(true);
   const [remotePeerIds, setRemotePeerIds] = useState([]);
   const [error, setError] = useState("");
+  const [qualityMode, setQualityMode] = useState(() => {
+    try { return localStorage.getItem("ss-call-quality") || "high"; } catch { return "high"; }
+  });
   const [userName, setUserName] = useState(() => {
     try { return localStorage.getItem('ss-username') || ''; } catch { return ''; }
   });
   const [remotePeerStatus, setRemotePeerStatus] = useState(new Map());
 
-  const peerConfig = useMemo(
+  const peerConfig = useMemo<RTCConfiguration>(
     () => ({
-      iceServers: DEFAULT_ICE_SERVERS,
+      iceServers: getIceServers(),
       iceCandidatePoolSize: 4,
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require"
@@ -82,7 +106,17 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
   }, [remotePeerIds]);
 
   useEffect(() => {
+    onActiveChange(Boolean(localReady || joined || remotePeerIds.length > 0));
+  }, [joined, localReady, onActiveChange, remotePeerIds.length]);
+
+  useEffect(() => {
     if (!socket || !roomId) return;
+
+    function rejoinCall() {
+      if (!joinedCallRef.current) return;
+      socket.emit("join-call", { roomId, userName });
+      broadcastPeerStatus();
+    }
 
     function handleCallPeers(payload) {
       if (!payload || payload.roomId !== roomId) return;
@@ -124,7 +158,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
     function handlePeerStatus(payload) {
       if (!payload) return;
-      setRemotePeerStatus(prev => new Map(prev).set(payload.peerId, { 
+      setRemotePeerStatus(prev => new Map(prev).set(payload.peerId, {
         micEnabled: payload.micEnabled,
         cameraEnabled: payload.cameraEnabled,
         userName: payload.userName || 'Guest'
@@ -138,6 +172,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     socket.on("webrtc-answer", handleAnswer);
     socket.on("webrtc-ice-candidate", handleIce);
     socket.on("peer-status", handlePeerStatus);
+    socket.on("connect", rejoinCall);
 
     return () => {
       socket.off("call-peers", handleCallPeers);
@@ -147,8 +182,9 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
       socket.off("webrtc-answer", handleAnswer);
       socket.off("webrtc-ice-candidate", handleIce);
       socket.off("peer-status", handlePeerStatus);
+      socket.off("connect", rejoinCall);
     };
-  }, [socket, roomId]);
+  }, [socket, roomId, userName]);
 
   function createPeerConnection(peerId, initiateOffer) {
     if (!socket || !roomId || !peerId) return null;
@@ -169,7 +205,8 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     const stream = localStreamRef.current;
     if (stream) {
       stream.getTracks().forEach((track) => {
-        pc.addTrack(track, stream);
+        const sender = pc.addTrack(track, stream);
+        applySenderQuality(sender, track.kind);
       });
     }
 
@@ -194,12 +231,14 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     };
 
     pc.onconnectionstatechange = () => {
+      if (!peerConnectionsRef.current.has(peerId)) return;
       const connectionState = pc.connectionState;
       if (connectionState === "connected") {
+        clearPeerReconnect(peerId);
         setStatus("Live");
       }
       if (["failed", "disconnected", "closed"].includes(connectionState)) {
-        removePeer(peerId);
+        schedulePeerReconnect(peerId);
       }
     };
 
@@ -222,14 +261,19 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
   async function startOffer(peerId, pc) {
     if (!socket || !roomId || !pc) return;
-    const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
-    await pc.setLocalDescription(offer);
-    socket.emit("webrtc-offer", {
-      roomId,
-      targetId: peerId,
-      sdp: pc.localDescription
-    });
-    setStatus("Connecting");
+    try {
+      const offer = await pc.createOffer({ offerToReceiveAudio: true, offerToReceiveVideo: true });
+      await pc.setLocalDescription(offer);
+      socket.emit("webrtc-offer", {
+        roomId,
+        targetId: peerId,
+        sdp: pc.localDescription
+      });
+      setStatus("Connecting");
+    } catch (error) {
+      console.warn("Failed to create call offer", error);
+      schedulePeerReconnect(peerId);
+    }
   }
 
   async function receiveOffer(peerId, sdp) {
@@ -237,16 +281,21 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     const pc = createPeerConnection(peerId, false);
     if (!pc) return;
 
-    await pc.setRemoteDescription(sdp);
-    const answer = await pc.createAnswer();
-    await pc.setLocalDescription(answer);
-    socket.emit("webrtc-answer", {
-      roomId,
-      targetId: peerId,
-      sdp: pc.localDescription
-    });
-    setJoined(true);
-    setStatus("Connecting");
+    try {
+      await pc.setRemoteDescription(sdp);
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit("webrtc-answer", {
+        roomId,
+        targetId: peerId,
+        sdp: pc.localDescription
+      });
+      setJoined(true);
+      setStatus("Connecting");
+    } catch (error) {
+      console.warn("Failed to answer call offer", error);
+      schedulePeerReconnect(peerId);
+    }
   }
 
   async function receiveAnswer(peerId, sdp) {
@@ -254,9 +303,14 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     if (!remoteState || !sdp) return;
     const { pc } = remoteState;
     if (pc.signalingState === "have-local-offer") {
-      await pc.setRemoteDescription(sdp);
-      setJoined(true);
-      setStatus("Live");
+      try {
+        await pc.setRemoteDescription(sdp);
+        setJoined(true);
+        setStatus("Live");
+      } catch (error) {
+        console.warn("Failed to apply call answer", error);
+        schedulePeerReconnect(peerId);
+      }
     }
   }
 
@@ -271,6 +325,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
   }
 
   function removePeer(peerId) {
+    clearPeerReconnect(peerId);
     const remoteState = peerConnectionsRef.current.get(peerId);
     if (remoteState) {
       remoteState.pc.close();
@@ -281,17 +336,41 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     setStatus((current) => (current === "Live" ? "Connecting" : current));
   }
 
+  function clearPeerReconnect(peerId) {
+    const timer = reconnectTimersRef.current.get(peerId);
+    if (timer) clearTimeout(timer);
+    reconnectTimersRef.current.delete(peerId);
+  }
+
+  function schedulePeerReconnect(peerId) {
+    if (!socket || !roomId || !joinedCallRef.current || reconnectTimersRef.current.has(peerId)) return;
+    setStatus("Reconnecting");
+    const timer = setTimeout(() => {
+      reconnectTimersRef.current.delete(peerId);
+      const remoteState = peerConnectionsRef.current.get(peerId);
+      if (remoteState) {
+        remoteState.pc.close();
+        peerConnectionsRef.current.delete(peerId);
+      }
+      socket.emit("join-call", { roomId, userName });
+    }, 2000);
+    reconnectTimersRef.current.set(peerId, timer);
+  }
+
   function teardownCall() {
-    if (socket && joinedCallRef.current && roomId) {
+    const wasJoined = joinedCallRef.current;
+    joinedCallRef.current = false;
+    if (socket && wasJoined && roomId) {
       socket.emit("leave-call", { roomId });
     }
 
     peerConnectionsRef.current.forEach(({ pc }) => pc.close());
     peerConnectionsRef.current.clear();
+    reconnectTimersRef.current.forEach((timer) => clearTimeout(timer));
+    reconnectTimersRef.current.clear();
     remoteVideoRefs.current.clear();
     setRemotePeerIds([]);
     setJoined(false);
-    joinedCallRef.current = false;
 
     const stream = localStreamRef.current;
     if (stream) {
@@ -331,17 +410,16 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     setStatus("Requesting media");
 
     try {
+      const quality = CALL_QUALITY[qualityMode] || CALL_QUALITY.high;
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
-          autoGainControl: true
+          autoGainControl: true,
+          sampleRate: { ideal: 48000 },
+          channelCount: { ideal: 2 }
         },
-        video: {
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-          frameRate: { ideal: 30, max: 30 }
-        }
+        video: quality.video
       });
 
       localStreamRef.current = stream;
@@ -350,13 +428,16 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
       setCameraEnabled(true);
       attachStream(localVideoRef.current, stream);
 
-      try { localStorage.setItem('ss-username', userName); } catch {}
+      try {
+        localStorage.setItem('ss-username', userName);
+        localStorage.setItem('ss-call-quality', qualityMode);
+      } catch { }
 
       socket.emit("join-call", { roomId, userName });
       joinedCallRef.current = true;
       setJoined(true);
-      setStatus("Connecting");
-      
+      setStatus(hasTurnServer(peerConfig.iceServers || []) ? "Connecting with TURN" : "Connecting");
+
       // Broadcast initial status
       setTimeout(() => {
         broadcastPeerStatus();
@@ -389,7 +470,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     } else {
       setCameraEnabled(nextEnabled);
     }
-    
+
     // Broadcast status change immediately with updated values
     if (socket && roomId) {
       socket.emit("broadcast-peer-status", {
@@ -401,31 +482,63 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     }
   }
 
+  async function changeQuality(nextMode) {
+    setQualityMode(nextMode);
+    try { localStorage.setItem("ss-call-quality", nextMode); } catch { }
+
+    const stream = localStreamRef.current;
+    if (!stream) return;
+
+    const quality = CALL_QUALITY[nextMode] || CALL_QUALITY.high;
+    const [videoTrack] = stream.getVideoTracks();
+    if (videoTrack?.applyConstraints) {
+      await videoTrack.applyConstraints(quality.video).catch(() => {});
+    }
+
+    peerConnectionsRef.current.forEach(({ pc }) => {
+      pc.getSenders().forEach((sender) => {
+        if (sender.track) applySenderQuality(sender, sender.track.kind, nextMode);
+      });
+    });
+    setStatus("Quality updated");
+  }
+
+  function applySenderQuality(sender, kind, mode = qualityMode) {
+    const quality = CALL_QUALITY[mode] || CALL_QUALITY.high;
+    const parameters = sender.getParameters();
+    parameters.encodings = parameters.encodings?.length ? parameters.encodings : [{}];
+    parameters.encodings[0].maxBitrate = kind === "video" ? quality.videoBitrate : quality.audioBitrate;
+    sender.setParameters(parameters).catch(() => {});
+  }
+
   const hasRemote = remotePeerIds.length > 0;
 
   const shellClass = fullscreen
-    ? "space-y-4 rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur"
+    ? "space-y-4 rounded-lg border border-white/10 bg-black/40 p-4 backdrop-blur"
     : `panel rounded-xl p-4 ${compact ? "space-y-3" : "space-y-4"}`;
 
   if (fullscreen) {
-    const slotCount = 4;
-    const remoteSlots = remotePeerIds.slice(0, slotCount - 1);
-    const placeholders = Math.max(0, slotCount - (remoteSlots.length + 1));
+    const activeRemotePeerIds = remotePeerIds.filter((peerId) => peerConnectionsRef.current.has(peerId));
+    const hasCallParticipants = localReady || activeRemotePeerIds.length > 0;
+    if (!hasCallParticipants) return null;
 
     return (
-      <div className="h-full w-full rounded-2xl border border-white/10 bg-black/20 p-3 backdrop-blur-xl">
-        <div className="flex h-full flex-col justify-center gap-4">
-          <ParticipantTile
-            name={userName || "You"}
-            cameraOn={cameraEnabled}
-            micOn={micEnabled}
-            isActive={micEnabled}
-            isLocal
-            registerVideo={(element) => {
-              if (element) attachStream(element, localStreamRef.current);
-            }}
-          />
-          {remoteSlots.map((peerId) => (
+      <div className="h-full w-full">
+        <div className="flex h-full flex-col justify-start gap-3">
+          {localReady && (
+            <ParticipantTile
+              name={userName || "You"}
+              cameraOn={cameraEnabled}
+              micOn={micEnabled}
+              isActive={micEnabled}
+              isLocal
+              isHost={true}
+              registerVideo={(element) => {
+                if (element) attachStream(element, localStreamRef.current);
+              }}
+            />
+          )}
+          {activeRemotePeerIds.map((peerId) => (
             <ParticipantTile
               key={peerId}
               name={remotePeerStatus.get(peerId)?.userName || "Guest"}
@@ -441,16 +554,6 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
                   }
                 }
               }}
-            />
-          ))}
-          {Array.from({ length: placeholders }).map((_, index) => (
-            <ParticipantTile
-              key={`placeholder-${index}`}
-              name="Waiting"
-              cameraOn={false}
-              micOn={false}
-              isActive={false}
-              placeholder
             />
           ))}
         </div>
@@ -472,7 +575,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
       <div className={`grid gap-3 ${compact ? "grid-cols-1" : "grid-cols-1"}`}>
         <div className="space-y-2">
-          <div className="rounded-2xl border border-white/10 bg-black/40 p-3 backdrop-blur">
+          <div className="rounded-lg border border-white/10 bg-black/40 p-3 backdrop-blur">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <p className="text-xs uppercase tracking-[0.2em] text-white/40">Your name</p>
@@ -481,33 +584,44 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
                   value={userName}
                   onChange={(e) => setUserName(e.target.value)}
                   placeholder="Enter your name"
-                  className="mt-1 w-full rounded-full border border-white/10 bg-black/40 px-3 py-2 text-sm text-white/90 placeholder-white/30 outline-none transition focus:border-[#39FF88]"
+                  className="mt-1 w-full rounded-lg border border-white/10 bg-black/40 px-3 py-2 text-sm text-white/90 placeholder-white/30 outline-none transition focus:border-white/40"
                 />
               </div>
+            </div>
+            <div className="mb-3 grid grid-cols-3 gap-1 rounded-lg border border-white/10 bg-black/30 p-1">
+              {Object.entries(CALL_QUALITY).map(([key, quality]) => (
+                <button
+                  key={key}
+                  className={`rounded-md px-2 py-1 text-[11px] font-semibold transition ${qualityMode === key ? "bg-neon text-black" : "text-white/55 hover:bg-white/10"}`}
+                  onClick={() => changeQuality(key)}
+                  type="button"
+                >
+                  {quality.label}
+                </button>
+              ))}
             </div>
             <div className="relative">
               {cameraEnabled ? (
                 <video
                   ref={localVideoRef}
-                  className={`w-full rounded-2xl bg-black ${compact ? "h-32" : "h-40"} object-cover`}
+                  className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-cover`}
                   autoPlay
                   playsInline
                   muted
                 />
               ) : (
-                <div className={`w-full rounded-2xl bg-gradient-to-br from-[#39FF88]/20 to-black flex items-center justify-center ${compact ? "h-32" : "h-40"}`}>
+                <div className={`flex w-full items-center justify-center rounded-lg bg-white/5 ${compact ? "h-32" : "h-40"}`}>
                   <div className="text-center">
-                    <div className="text-2xl mb-2">🎥</div>
-                    <p className="text-sm font-semibold text-[#39FF88]">{userName || 'You'}</p>
+                    <p className="text-sm font-semibold text-white/80">{userName || 'You'}</p>
                   </div>
                 </div>
               )}
-              <div className="absolute bottom-2 left-2 rounded-full border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-white/80 backdrop-blur">
+              <div className="absolute bottom-2 left-2 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-white/80 backdrop-blur">
                 You
               </div>
               <div className="absolute bottom-2 right-2 flex items-center gap-1">
-                <span className={`h-2 w-2 rounded-full ${micEnabled ? 'bg-[#39FF88]' : 'bg-red-400'}`} />
-                <span className={`text-[10px] ${micEnabled ? 'text-[#39FF88]' : 'text-red-400'}`}>
+                <span className={`h-2 w-2 rounded-full ${micEnabled ? 'bg-white' : 'bg-red-400'}`} />
+                <span className={`text-[10px] ${micEnabled ? 'text-white/80' : 'text-red-400'}`}>
                   {micEnabled ? 'Mic' : 'Muted'}
                 </span>
               </div>
@@ -535,7 +649,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
               />
             ))
           ) : (
-            <div className="rounded-2xl border border-dashed border-white/10 p-4 text-center text-xs text-white/40">
+            <div className="rounded-lg border border-dashed border-white/10 p-4 text-center text-xs text-white/40">
               Waiting for other participants...
             </div>
           )}
@@ -544,7 +658,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
       {!localReady ? (
         <button
-          className="w-full rounded-full bg-[#39FF88] px-3 py-2 font-semibold text-black transition hover:opacity-90 disabled:opacity-50"
+          className="w-full rounded-lg bg-neon px-3 py-2 font-semibold text-black transition hover:bg-neon/90 disabled:opacity-50"
           onClick={startCameraAndMic}
           disabled={!socket || !roomId || !userName.trim()}
         >
@@ -554,14 +668,14 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
       <div className="grid grid-cols-2 gap-2">
         <button
-          className={`rounded-full px-3 py-2 text-sm transition ${micEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/20 text-red-200 hover:bg-red-500/30"}`}
+          className={`rounded-lg px-3 py-2 text-sm transition ${micEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/20 text-red-200 hover:bg-red-500/30"}`}
           onClick={() => toggleTrack("audio")}
           disabled={!localReady}
         >
           {micEnabled ? "Mic On" : "Mic Off"}
         </button>
         <button
-          className={`rounded-full px-3 py-2 text-sm transition ${cameraEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/20 text-red-200 hover:bg-red-500/30"}`}
+          className={`rounded-lg px-3 py-2 text-sm transition ${cameraEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/20 text-red-200 hover:bg-red-500/30"}`}
           onClick={() => toggleTrack("video")}
           disabled={!localReady}
         >
@@ -571,7 +685,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
       {localReady && (
         <button
-          className="w-full rounded-full border border-white/15 px-3 py-2 text-sm text-white/80 transition hover:bg-white/5"
+          className="w-full rounded-lg border border-white/15 px-3 py-2 text-sm text-white/80 transition hover:bg-white/5"
           onClick={teardownCall}
         >
           Leave Call
@@ -581,7 +695,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
   );
 }
 
-function RemoteTile({ peerId, compact, status, registerVideo, fullscreen }) {
+function RemoteTile({ peerId, compact, status, registerVideo, fullscreen = false }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -593,8 +707,8 @@ function RemoteTile({ peerId, compact, status, registerVideo, fullscreen }) {
   const name = status?.userName || 'Guest';
 
   const tileClass = fullscreen
-    ? `relative rounded-2xl border ${micOn ? "border-[#39FF88]/60" : "border-white/10"} bg-black/40 p-2 backdrop-blur shadow-[0_10px_30px_rgba(0,0,0,0.45)]`
-    : "rounded-xl bg-black/60 p-2";
+    ? `relative rounded-lg border ${micOn ? "border-neon/60" : "border-white/10"} bg-black/40 p-2 backdrop-blur shadow-[0_10px_30px_rgba(0,0,0,0.45)]`
+    : "rounded-lg bg-black/60 p-2";
 
   return (
     <div className={tileClass}>
@@ -602,23 +716,22 @@ function RemoteTile({ peerId, compact, status, registerVideo, fullscreen }) {
         {cameraOn ? (
           <video
             ref={videoRef}
-            className={`w-full rounded-2xl bg-black ${compact ? "h-32" : "h-40"} object-cover`}
+            className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-cover`}
             autoPlay
             playsInline
           />
         ) : (
-          <div className={`w-full rounded-2xl bg-gradient-to-br from-[#39FF88]/20 to-black flex items-center justify-center ${compact ? "h-32" : "h-40"}`}>
+          <div className={`flex w-full items-center justify-center rounded-lg bg-white/5 ${compact ? "h-32" : "h-40"}`}>
             <div className="text-center">
-              <div className="text-2xl mb-2">👤</div>
-              <p className="text-sm font-semibold text-[#39FF88]">{name}</p>
+              <p className="text-sm font-semibold text-white/80">{name}</p>
             </div>
           </div>
         )}
-        <div className="absolute bottom-2 left-2 rounded-full border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-white/80 backdrop-blur">
+        <div className="absolute bottom-2 left-2 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-white/80 backdrop-blur">
           {name}
         </div>
-        <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-full border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-white/70 backdrop-blur">
-          <span className={`h-2 w-2 rounded-full ${micOn ? 'bg-[#39FF88]' : 'bg-red-400'}`} />
+        <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-md border border-white/10 bg-black/60 px-2 py-1 text-[10px] text-white/70 backdrop-blur">
+          <span className={`h-2 w-2 rounded-full ${micOn ? 'bg-white' : 'bg-red-400'}`} />
           <span>{micOn ? 'Mic' : 'Muted'}</span>
         </div>
       </div>
@@ -626,7 +739,7 @@ function RemoteTile({ peerId, compact, status, registerVideo, fullscreen }) {
   );
 }
 
-function ParticipantTile({ name, cameraOn, micOn, isActive, isLocal = false, registerVideo, placeholder = false }) {
+function ParticipantTile({ name, cameraOn, micOn, isActive, isLocal = false, registerVideo = (_element) => {}, isHost = false }) {
   const videoRef = useRef(null);
 
   useEffect(() => {
@@ -634,7 +747,7 @@ function ParticipantTile({ name, cameraOn, micOn, isActive, isLocal = false, reg
   }, [registerVideo]);
 
   return (
-    <div className={`group relative w-full overflow-hidden rounded-2xl border ${isActive ? "border-[#39FF88]/70 shadow-[0_0_18px_rgba(57,255,136,0.35)]" : "border-white/10"} bg-black/40 transition duration-300 hover:scale-[1.02] hover:shadow-[0_0_20px_rgba(57,255,136,0.2)] aspect-[3/4]`}>
+    <div className={`group relative aspect-[4/3] w-full overflow-hidden rounded-lg border ${isActive ? "border-neon/60" : "border-white/10"} bg-[#121212]/80 shadow-2xl transition-all duration-300`}>
       {cameraOn ? (
         <video
           ref={videoRef}
@@ -644,18 +757,29 @@ function ParticipantTile({ name, cameraOn, micOn, isActive, isLocal = false, reg
           muted={isLocal}
         />
       ) : (
-        <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#39FF88]/15 to-black">
-          {!placeholder && <div className="text-sm font-semibold text-[#39FF88]">{name}</div>}
+        <div className="absolute inset-0 flex items-center justify-center bg-[#111111]">
+          <div className="text-sm font-semibold text-white/40">{name}</div>
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/80 to-transparent" />
-      <div className="absolute bottom-2 left-2 text-xs text-white/80">{name}</div>
-      <div className="absolute bottom-2 right-2 flex items-end gap-1">
-        <span className={`h-2 w-1 rounded-full ${micOn ? "bg-[#39FF88]" : "bg-white/20"} animate-pulse`} />
-        <span className={`h-4 w-1 rounded-full ${micOn ? "bg-[#39FF88]" : "bg-white/20"} animate-pulse`} style={{ animationDelay: '0.15s' }} />
-        <span className={`h-3 w-1 rounded-full ${micOn ? "bg-[#39FF88]" : "bg-white/20"} animate-pulse`} style={{ animationDelay: '0.3s' }} />
+      <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-between">
+        <span className="text-[11px] font-bold tracking-wide text-white/90 drop-shadow-md truncate max-w-[70%]">
+          {name} {isLocal && "(You)"}
+        </span>
+        <div className="flex items-center gap-1.5 rounded-md border border-white/5 bg-black/20 px-1.5 py-0.5 backdrop-blur-md">
+          <div className={`h-1.5 w-1.5 rounded-full ${micOn ? "bg-neon" : "bg-red-500"}`} />
+          <div className="flex flex-col gap-0.5">
+            <div className={`h-2.5 w-0.5 rounded-full ${micOn ? "bg-neon" : "bg-white/20"}`} />
+            <div className={`h-1.5 w-0.5 rounded-full ${micOn ? "bg-neon" : "bg-white/20"}`} />
+          </div>
+        </div>
       </div>
+
+      {isHost && (
+        <div className="absolute right-2 top-2 rounded-md bg-neon px-2 py-0.5 text-[9px] font-black uppercase tracking-wider text-black">
+          Host
+        </div>
+      )}
     </div>
   );
 }

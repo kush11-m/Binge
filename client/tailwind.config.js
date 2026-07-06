@@ -1,14 +1,22 @@
 /** @type {import('tailwindcss').Config} */
 module.exports = {
-  content: ["./pages/**/*.{js,jsx}", "./components/**/*.{js,jsx}", "./hooks/**/*.{js,jsx}"],
+  content: ["./src/**/*.{js,jsx,ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        neon: "#00ff88",
-        panel: "#0b0b0b"
+        neon: "#39ff88",
+        panel: "#080d0a",
+        canvas: "#050806",
+        surface: "#0b120e",
+        wash: "#121b16",
+        ink: "#f4fff8",
+        muted: "#93a39a",
+        line: "#1f3027",
+        ready: "#39ff88"
       },
       boxShadow: {
-        glow: "0 0 16px rgba(0, 255, 136, 0.5)"
+        glow: "0 0 24px rgba(57, 255, 136, 0.24)",
+        soft: "0 22px 70px rgba(0, 0, 0, 0.42)"
       },
       keyframes: {
         rise: {

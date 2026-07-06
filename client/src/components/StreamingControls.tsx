@@ -7,6 +7,38 @@ function fmt(seconds) {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+function SkipIcon({ direction }) {
+  const forward = direction === "forward";
+  const triangleOne = forward
+    ? "M7.5 6.75L12.5 12L7.5 17.25Z"
+    : "M16.5 6.75L11.5 12L16.5 17.25Z";
+  const triangleTwo = forward
+    ? "M12 6.75L17 12L12 17.25Z"
+    : "M12 6.75L7 12L12 17.25Z";
+  const bar = forward ? "M5.75 6.75H7V17.25H5.75Z" : "M17 6.75H18.25V17.25H17Z";
+
+  return (
+    <svg className="h-[18px] w-[18px] text-current" viewBox="0 0 24 24" aria-hidden="true">
+      <path d={bar} fill="currentColor" />
+      <path d={triangleOne} fill="currentColor" />
+      <path d={triangleTwo} fill="currentColor" />
+    </svg>
+  );
+}
+
+function SeekButton({ direction, label, onClick }) {
+  return (
+    <button
+      onClick={onClick}
+      className="group flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-white/10 bg-white/[0.05] text-white/75 shadow-[0_8px_20px_rgba(0,0,0,0.18)] transition duration-200 hover:border-neon/40 hover:bg-neon/10 hover:text-neon focus:outline-none focus-visible:ring-2 focus-visible:ring-neon/50"
+      aria-label={label}
+      title={label}
+    >
+      <SkipIcon direction={direction} />
+    </button>
+  );
+}
+
 export default function StreamingControls({
   videoRef,
   isPlaying,
@@ -202,60 +234,77 @@ export default function StreamingControls({
     };
   }, [onPlayPause, onFullscreen, videoRef, duration]);
 
+  function skipBy(seconds) {
+    const video = videoRef.current;
+    if (!video) return;
+    const max = video.duration || duration || 0;
+    const nextTime = Math.max(0, Math.min(max, (video.currentTime || 0) + seconds));
+    video.currentTime = nextTime;
+    onSeek(nextTime);
+  }
+
   const barPosition = fullscreen
-    ? "left-1/2 -translate-x-1/2 bottom-6 w-[min(90vw,1100px)]"
+    ? "left-4 right-4 bottom-4 sm:left-6 sm:right-6 sm:bottom-6"
     : "left-4 right-4 bottom-4";
 
   return (
     <div ref={containerRef} className="streaming-controls-ui absolute inset-0 z-20 pointer-events-none">
-      {/* center large play when paused */}
       <div className={`absolute inset-0 flex items-center justify-center transition-opacity duration-300 ${isPlaying ? 'opacity-0 pointer-events-none' : visible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
-        <div className="rounded-full border border-white/10 bg-black/40 p-4 backdrop-blur">
-          <button onClick={onPlayPause} className="pointer-events-auto flex h-20 w-20 items-center justify-center rounded-full bg-black/60 text-4xl text-[#39FF88] shadow-[0_8px_30px_rgba(57,255,136,0.2)] transition hover:scale-105">
+        <div className="rounded-lg border border-white/10 bg-black/55 p-3 backdrop-blur-xl">
+          <button onClick={onPlayPause} className="pointer-events-auto flex h-16 w-16 items-center justify-center rounded-lg bg-neon text-3xl text-black shadow-[0_16px_40px_rgba(57,255,136,0.22)] transition hover:bg-neon/90 sm:h-20 sm:w-20">
             ▶
           </button>
         </div>
       </div>
 
-      {/* bottom controls */}
-      <div className={`absolute ${barPosition} rounded-2xl pointer-events-auto transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        <div className="flex flex-col gap-3 rounded-2xl border border-white/10 bg-black/40 p-4 backdrop-blur shadow-[0_20px_50px_rgba(0,0,0,0.55)]">
-          <div className="w-full relative h-2 rounded-full overflow-hidden ss-track cursor-pointer group hover:h-3 transition-all" style={{ background: 'rgba(255,255,255,0.08)' }}>
-            <div ref={bufferRef} className="absolute left-0 top-0 bottom-0 bg-white/20" style={{ width: '0%' }} />
-            <div ref={progressRef} className="absolute left-0 top-0 bottom-0 bg-[#39FF88] shadow-[inset_0_0_6px_rgba(57,255,136,0.3)]" style={{ width: '0%' }} />
-            <div ref={handleRef} className="absolute top-1/2 -translate-y-1/2 h-3 w-3 rounded-full bg-white shadow-[0_0_12px_rgba(57,255,136,0.8)] opacity-0 transition-opacity group-hover:opacity-100" style={{ left: '0%', transform: 'translate(-50%, -50%)' }} />
+      <div className={`absolute ${barPosition} pointer-events-auto transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-black/80 px-3 py-3 shadow-2xl backdrop-blur-xl sm:flex-nowrap sm:gap-4 sm:px-4">
+          <button onClick={onPlayPause} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neon text-black transition hover:bg-neon/90">
+            {isPlaying ? (
+               <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
+            ) : (
+               <svg className="w-5 h-5 ml-1" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+            )}
+          </button>
+
+          <div className="flex items-center gap-2">
+            <SeekButton
+              direction="back"
+              label="Rewind"
+              onClick={() => skipBy(-10)}
+            />
+            <SeekButton
+              direction="forward"
+              label="Forward"
+              onClick={() => skipBy(10)}
+            />
+            <button onClick={() => { setVolume(v => { const next = Math.max(0, Math.min(1, v - 0.1)); setVolume(next); if (videoRef.current) videoRef.current.volume = next; return next; }); }} className="ml-1 rounded-md p-1 text-white/65 transition hover:bg-white/10 hover:text-white" aria-label="Lower volume">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
+            </button>
           </div>
 
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <button onClick={onPlayPause} className="pointer-events-auto flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-black/50 text-white/90 transition hover:text-[#39FF88]">
-                {isPlaying ? '❚❚' : '▶'}
-              </button>
-              <div ref={timeRef} className="text-xs text-white/80 font-mono">0:00 / 0:00</div>
+          <div className="order-first flex w-full flex-1 items-center gap-3 sm:order-none sm:w-auto sm:px-2">
+            <div className="w-full relative h-1.5 rounded-full bg-white/10 group cursor-pointer ss-track overflow-visible">
+              <div ref={bufferRef} className="absolute left-0 top-0 bottom-0 bg-white/20 rounded-full" style={{ width: '0%' }} />
+              <div ref={progressRef} className="absolute left-0 top-0 bottom-0 rounded-full bg-neon shadow-[0_0_10px_rgba(57,255,136,0.3)]" style={{ width: '0%' }} />
+              <div ref={handleRef} className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-white shadow-[0_0_10px_rgba(57,255,136,0.8)] opacity-0 transition-opacity group-hover:opacity-100" style={{ left: '0%', transform: 'translate(-50%, -50%)' }} />
             </div>
+            <div ref={timeRef} className="min-w-[96px] shrink-0 text-right font-mono text-xs font-medium text-neon">0:00 / 0:00</div>
+          </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center gap-2 pointer-events-auto">
-                <button onClick={() => { setVolume(v => { const next = Math.max(0, Math.min(1, v - 0.1)); setVolume(next); if (videoRef.current) videoRef.current.volume = next; return next; }); }} className="text-white/70 transition hover:text-white">🔊</button>
-                <input type="range" min="0" max="1" step="0.01" value={volume} onChange={(e) => { const nv = Number(e.target.value); setVolume(nv); if (videoRef.current) videoRef.current.volume = nv; }} className="w-24 accent-[#39FF88]" />
-              </div>
-
-              <button onClick={() => onToggleSubs()} className={`rounded-full border border-white/10 px-2 py-1 text-xs ${subsEnabled ? 'text-[#39FF88]' : 'text-white/70'} pointer-events-auto transition hover:text-white`}>CC</button>
-
-              <div className="relative pointer-events-auto">
-                <button onClick={() => setSpeedMenuOpen(!speedMenuOpen)} className={`rounded-full border border-white/10 px-2 py-1 text-xs transition ${speedMenuOpen ? 'text-[#39FF88]' : 'text-white/80'}`}>{speed}x</button>
-                {speedMenuOpen && (
-                  <div className="absolute right-0 bottom-full mb-2 min-w-[80px] rounded-xl border border-white/10 bg-black/80 p-1 shadow-lg backdrop-blur">
-                    {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(s => (
-                      <button key={s} onClick={() => { setSpeed(s); setSpeedMenuOpen(false); }} className={`block w-full rounded px-3 py-1 text-left text-sm transition ${s===speed? 'text-[#39FF88] bg-black/60':'text-white/70 hover:text-white'}`}>{s}x</button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <button className="rounded-full border border-white/10 px-2 py-1 text-xs text-white/80 pointer-events-auto transition hover:text-white">⚙</button>
-              <button onClick={onFullscreen} className="rounded-full border border-white/10 px-2 py-1 text-xs text-white/80 pointer-events-auto transition hover:text-white">⛶</button>
+          <div className="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
+            <button onClick={onToggleSubs} className={`rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold transition ${subsEnabled ? 'bg-white/10 text-white' : 'text-white/50 hover:text-white'}`}>CC</button>
+            <div className="relative pointer-events-auto">
+              <button onClick={() => setSpeedMenuOpen(!speedMenuOpen)} className={`rounded-lg border border-white/10 px-2 py-1 text-xs font-semibold transition ${speedMenuOpen ? 'bg-white/10 text-white' : 'text-white/70 hover:text-white'}`}>{speed}x</button>
+              {speedMenuOpen && (
+                <div className="absolute right-0 bottom-full mb-2 min-w-[80px] rounded-lg border border-white/10 bg-black/90 p-1 shadow-xl backdrop-blur">
+                  {[0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2].map(s => (
+                    <button key={s} onClick={() => { setSpeed(s); setSpeedMenuOpen(false); }} className={`block w-full rounded-lg px-3 py-1.5 text-left text-sm font-medium transition ${s===speed? 'text-[#39FF88] bg-white/5':'text-white/70 hover:text-white hover:bg-white/5'}`}>{s}x</button>
+                  ))}
+                </div>
+              )}
             </div>
+            <button onClick={onFullscreen} className="rounded-lg p-1.5 text-white/65 transition hover:bg-white/10 hover:text-white" aria-label="Toggle fullscreen"><svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" /></svg></button>
           </div>
         </div>
       </div>

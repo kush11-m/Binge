@@ -1,0 +1,29 @@
+{$PUBLIC_APP_HOST} {
+  encode zstd gzip
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+  }
+
+  reverse_proxy binge-client:3000 {
+    header_up Host {host}
+    header_up X-Forwarded-Proto {scheme}
+    header_up X-Forwarded-For {remote_host}
+  }
+}
+
+{$PUBLIC_BACKEND_HOST} {
+  encode zstd gzip
+
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    X-Content-Type-Options "nosniff"
+  }
+
+  reverse_proxy binge-server:3002 {
+    header_up Host {host}
+    header_up X-Forwarded-Proto {scheme}
+    header_up X-Forwarded-For {remote_host}
+  }
+}
