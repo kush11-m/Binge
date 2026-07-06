@@ -55,7 +55,7 @@ export class WebRTCProvider extends StreamingProvider {
       return;
     }
 
-    if (!video.src) {
+    if (this.hasServerFallback() && !video.src) {
       video.src = `${this.serverBase}${this.fallbackVideoUrl}`;
     }
 
@@ -79,8 +79,8 @@ export class WebRTCProvider extends StreamingProvider {
   }
 
   private async attachHost(video: HTMLVideoElement) {
-    const fallbackSource = `${this.serverBase}${this.fallbackVideoUrl}`;
-    if (!video.src) {
+    const fallbackSource = this.hasServerFallback() ? `${this.serverBase}${this.fallbackVideoUrl}` : "";
+    if (fallbackSource && !video.src) {
       video.src = fallbackSource;
       video.preload = "auto";
       video.crossOrigin = "anonymous";
@@ -92,6 +92,16 @@ export class WebRTCProvider extends StreamingProvider {
     };
     const capture = videoWithCapture.captureStream || videoWithCapture.mozCaptureStream;
     if (capture && !this.localStream) {
+      if (!video.src && !video.srcObject) {
+        this.setStatus({
+          label: "Choose local source",
+          detail: "This internet room is waiting for the host's local video file",
+          quality: "P2P source",
+          transport: "WebRTC"
+        });
+        return;
+      }
+
       this.localStream = capture.call(video);
       this.peers.forEach(({ pc }) => this.addTracks(pc));
       this.socket.emit("internet-host-ready", { roomId: this.roomId });
@@ -103,10 +113,12 @@ export class WebRTCProvider extends StreamingProvider {
       });
     } else if (!capture) {
       this.setStatus({
-        label: "Internet fallback",
-        detail: "This browser cannot capture the video element, using server media URL",
-        quality: "HTTP fallback",
-        transport: "HTTP"
+        label: this.hasServerFallback() ? "Internet fallback" : "Unsupported browser",
+        detail: this.hasServerFallback()
+          ? "This browser cannot capture the video element, using server media URL"
+          : "This browser cannot capture the video element for a free P2P room",
+        quality: this.hasServerFallback() ? "HTTP fallback" : "P2P unavailable",
+        transport: this.hasServerFallback() ? "HTTP" : "WebRTC"
       });
     }
   }
@@ -245,9 +257,11 @@ export class WebRTCProvider extends StreamingProvider {
       console.warn("Unable to create internet offer", error);
       this.setStatus({
         label: "Internet relay waiting",
-        detail: "Unable to start a peer relay yet; viewers can use server media fallback",
-        quality: "HTTP fallback",
-        transport: "HTTP"
+        detail: this.hasServerFallback()
+          ? "Unable to start a peer relay yet; viewers can use server media fallback"
+          : "Unable to start a peer relay yet; retrying the direct host connection",
+        quality: this.hasServerFallback() ? "HTTP fallback" : "P2P only",
+        transport: this.hasServerFallback() ? "HTTP" : "WebRTC"
       });
     }
   }
@@ -295,8 +309,8 @@ export class WebRTCProvider extends StreamingProvider {
     this.viewerFallbackTimer = setTimeout(() => {
       if (this.remoteStream) return;
       this.useServerFallback(hasTurnServer(this.iceServers)
-        ? "Waiting for WebRTC; server media URL remains available"
-        : "Add a TURN server for better NAT traversal; server media URL remains available");
+        ? "Waiting for WebRTC"
+        : "Add a TURN server for better NAT traversal");
     }, 8000);
   }
 
@@ -317,6 +331,16 @@ export class WebRTCProvider extends StreamingProvider {
   }
 
   private useServerFallback(detail: string) {
+    if (!this.hasServerFallback()) {
+      this.setStatus({
+        label: "Waiting for host",
+        detail: "This free room has no server media fallback; keep the host tab open and connected",
+        quality: "P2P only",
+        transport: "WebRTC"
+      });
+      return;
+    }
+
     const fallbackSource = `${this.serverBase}${this.fallbackVideoUrl}`;
     if (this.attachedVideo) {
       const resumeAt = Number.isFinite(this.attachedVideo.currentTime)
@@ -356,6 +380,10 @@ export class WebRTCProvider extends StreamingProvider {
       quality: "HTTP fallback",
       transport: "HTTP"
     });
+  }
+
+  private hasServerFallback() {
+    return typeof this.fallbackVideoUrl === "string" && this.fallbackVideoUrl.startsWith("/");
   }
 
   private startStats(peerId: string) {

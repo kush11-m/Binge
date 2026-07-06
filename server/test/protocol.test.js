@@ -581,3 +581,46 @@ test("broadcasts uploaded media to waiting room viewers", async () => {
     }
   });
 });
+
+test("prepares internet rooms without uploading video bytes", async () => {
+  await withServer(async ({ baseUrl }) => {
+    const viewer = await connectClient(baseUrl);
+
+    try {
+      viewer.emit("join-room", { roomId: "P2P001", mode: "INTERNET" });
+      const initialState = await once(viewer, "state");
+      assert.equal(initialState.videoUrl, null);
+
+      const preparedStatePromise = once(viewer, "state");
+      const prepareResponse = await fetch(`${baseUrl}/upload/p2p`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          roomId: "P2P001",
+          videoName: "three-hour-screening.mp4",
+          subsName: "captions.srt",
+          subsText: "1\n00:00:01,000 --> 00:00:02,000\nReady\n"
+        })
+      });
+
+      const prepared = await prepareResponse.json();
+      assert.equal(prepareResponse.status, 200);
+      assert.equal(prepared.mode, "INTERNET");
+      assert.equal(prepared.videoUrl, "p2p://host/three-hour-screening.mp4");
+      assert.match(prepared.subsUrl, /^\/subs\/.+\.vtt$/);
+
+      const preparedState = await preparedStatePromise;
+      assert.equal(preparedState.mode, "INTERNET");
+      assert.equal(preparedState.videoUrl, "p2p://host/three-hour-screening.mp4");
+      assert.match(preparedState.subsUrl, /^\/subs\/.+\.vtt$/);
+      assert.equal(preparedState.isPlaying, false);
+      assert.equal(preparedState.viewers, 1);
+
+      const subtitle = await fetch(`${baseUrl}${prepared.subsUrl}`).then((res) => res.text());
+      assert.match(subtitle, /^WEBVTT/);
+      assert.match(subtitle, /00:00:01\.000 --> 00:00:02\.000/);
+    } finally {
+      viewer.close();
+    }
+  });
+});

@@ -113,6 +113,57 @@ function createUploadRouter({ uploadDir, rooms, io, env = process.env }) {
     });
   });
 
+  router.post("/p2p", (req, res) => {
+    const roomId = normalizeRoomId(req.body.roomId);
+    const videoName = String(req.body.videoName || "Local video").trim().slice(0, 180);
+    const mode = "INTERNET";
+
+    if (!roomId) {
+      res.status(400).json({ error: "roomId is required" });
+      return;
+    }
+
+    const room = getOrCreateRoom(rooms, roomId, mode, roomOptions);
+    room.mode = mode;
+    ["video", "subs"].forEach((key) => {
+      if (room.files?.[key]) safeUnlink(path.join(uploadDir, path.basename(room.files[key])));
+    });
+
+    room.files.video = `p2p://host/${encodeURIComponent(videoName || "local-video")}`;
+    room.files.hls = null;
+
+    const subsText = typeof req.body.subsText === "string" ? req.body.subsText : "";
+    const subsName = String(req.body.subsName || "").trim();
+    if (subsText && subsText.length <= Number(env.MAX_SUBTITLE_TEXT_BYTES || 2 * 1024 * 1024)) {
+      const originalExt = path.extname(subsName).toLowerCase();
+      const token = crypto.randomBytes(5).toString("hex");
+      const nextName = `${Date.now()}-${token}.vtt`;
+      const nextPath = path.join(uploadDir, nextName);
+      const vttText = originalExt === ".srt" ? srtToVtt(subsText) : subsText;
+      fs.writeFileSync(nextPath, vttText.startsWith("WEBVTT") ? vttText : `WEBVTT\n\n${vttText}`, "utf8");
+      room.files.subs = `/subs/${nextName}`;
+    } else {
+      room.files.subs = null;
+    }
+
+    room.state = { currentTime: 0, isPlaying: false };
+    room.updatedAt = Date.now();
+    rooms.set(roomId, room);
+
+    if (io) {
+      io.to(roomId).emit("state", computeState(room));
+      io.to(roomId).emit("presence", { viewers: room.users?.size || 0, hostId: room.hostId || null });
+    }
+
+    res.json({
+      roomId,
+      mode: room.mode,
+      videoUrl: room.files.video,
+      subsUrl: room.files.subs,
+      hlsUrl: room.files.hls
+    });
+  });
+
   return router;
 }
 

@@ -3,13 +3,13 @@
 Minimal synced watch rooms with two delivery modes:
 
 - Nearby Wi-Fi: direct HTTP media streaming from the local Node server with tight playback sync.
-- Internet: public Socket.IO sync plus WebRTC host relay when available, with server-media fallback.
+- Internet: public Socket.IO sync plus WebRTC host relay from the host browser. Movie files stay local and are not uploaded to the backend.
 
 The app also includes a browser camera/mic call so people can watch and talk in the same room.
 
 ## Reality Check
 
-No browser app can guarantee literal zero latency or perfect quality across arbitrary networks. Binge is built for ultra-low-latency sync and source-quality playback where the network allows it. For reliable internet rooms, deploy the server on public HTTPS and configure a TURN server.
+No browser app can guarantee literal zero latency or perfect quality across arbitrary networks. Binge is built for ultra-low-latency sync and source-quality playback where the network allows it. Internet rooms avoid developer video bandwidth by keeping the movie on the host device and relaying it peer-to-peer.
 
 ## Requirements
 
@@ -59,7 +59,9 @@ When the backend can see a local network address, the app shows a `Use Wi-Fi add
 
 ### Internet
 
-Use this when viewers are outside the local network. Deploy the Node backend somewhere reachable from the public internet, then set the client to that URL:
+Use this when viewers are outside the local network. The selected movie is saved in the host browser's local storage for the room and is streamed from the host tab over WebRTC; the backend only handles room state and signaling. A 3-hour screening does not consume backend video storage or backend video egress.
+
+Deploy the Node backend somewhere reachable from the public internet, then set the client to that URL:
 
 ```bash
 NEXT_PUBLIC_SERVER_URL=https://your-sync-server.example.com
@@ -79,7 +81,7 @@ You can also provide the full ICE list as JSON:
 NEXT_PUBLIC_ICE_SERVERS='[{"urls":"stun:stun.l.google.com:19302"},{"urls":"turn:turn.example.com:3478","username":"your-user","credential":"your-password"}]'
 ```
 
-Without TURN, WebRTC may fail on some networks. The room keeps the server media URL available as a fallback, but latency and buffering will depend on server bandwidth and viewer distance.
+Without TURN, WebRTC may fail on some restrictive networks. The free internet path intentionally does not fall back to server-hosted movie playback, so keep the host tab open and use a browser that supports `HTMLVideoElement.captureStream()`.
 
 Invite links include the selected backend URL as a `server` query parameter, so viewers connect to the intended public sync server even when the client app is served separately.
 
@@ -95,17 +97,18 @@ The value is bits per second and is clamped between 1 Mbps and 30 Mbps in the cl
 
 - Best video compatibility: MP4 with H.264 video and AAC audio.
 - WebM works in most Chromium-based browsers.
-- The host screen checks the selected file against the backend upload limit before starting the transfer.
+- The LAN host screen checks the selected file against the backend upload limit before starting the transfer.
+- Internet mode does not upload the movie file, so large browser-playable movies are limited by the host device, browser storage, and upload bandwidth instead of backend storage.
 - Optional subtitles: `.vtt` or `.srt`; SRT uploads are converted to VTT.
 - Camera/mic requires HTTPS except on localhost.
 
 ## Deployment Notes
 
-- The server must be a normal long-running Node process because it handles uploads, byte-range media serving, Socket.IO, and WebRTC signaling.
+- The server must be a normal long-running Node process because it handles Socket.IO, room state, WebRTC signaling, LAN uploads, and LAN byte-range media serving.
 - If the Next client is deployed separately, set `NEXT_PUBLIC_SERVER_URL` to the public backend origin.
 - If you use the compose stack below, Caddy publishes both the app host and the backend host over HTTPS.
-- Configure CORS/proxy limits on your host for large video uploads.
-- Keep uploaded files on persistent storage if rooms should survive server restarts.
+- Configure CORS/proxy limits on your host for large video uploads only if you use Nearby Wi-Fi uploads through a remote backend.
+- Internet movie files are not persisted on the backend; room metadata disappears when the in-memory room expires or the server restarts.
 
 ### Backend Health Checks
 

@@ -5,6 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import StreamingControls from "../../components/StreamingControls";
 import { SyncEngine } from "../../services/SyncEngine";
 import { buildRoomPath, getDefaultServerBase, normalizeServerBase } from "../../services/connection";
+import { getLocalMedia } from "../../services/localMediaStore";
 import { useSocket } from "../../hooks/useSocket";
 import { useStreaming } from "../../hooks/useStreaming";
 import type { ProviderStatus, RoomState, StreamMode } from "../../types";
@@ -39,6 +40,7 @@ function Room() {
   const syncEngineRef = useRef(new SyncEngine());
   const pendingPlayRef = useRef<(() => void) | null>(null);
   const lastTimeUpdateRef = useRef(0);
+  const localObjectUrlRef = useRef("");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -130,6 +132,43 @@ function Room() {
       provider.removeEventListener("remote-stream", onRemoteStream);
     };
   }, [provider]);
+
+  useEffect(() => {
+    if (!isHost || !resolvedRoomId || roomState?.mode !== "INTERNET" || !roomState?.videoUrl?.startsWith("p2p://")) return;
+    const video = videoRef.current;
+    if (!video) return;
+
+    let cancelled = false;
+
+    async function attachLocalSource() {
+      const media = await getLocalMedia(resolvedRoomId);
+      if (cancelled) return;
+
+      if (!media?.videoFile) {
+        setError("This internet room needs the host's original local video. Reopen the host setup page and prepare the room again.");
+        return;
+      }
+
+      if (localObjectUrlRef.current) URL.revokeObjectURL(localObjectUrlRef.current);
+      const nextUrl = URL.createObjectURL(media.videoFile);
+      localObjectUrlRef.current = nextUrl;
+      video.srcObject = null;
+      video.src = nextUrl;
+      video.preload = "auto";
+      video.load();
+      await provider?.attach(video);
+    }
+
+    void attachLocalSource();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isHost, provider, resolvedRoomId, roomState?.mode, roomState?.videoUrl]);
+
+  useEffect(() => () => {
+    if (localObjectUrlRef.current) URL.revokeObjectURL(localObjectUrlRef.current);
+  }, []);
 
   useEffect(() => {
     const track = trackRef.current;

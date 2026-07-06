@@ -6,6 +6,7 @@ import UploadPanel from "../components/UploadPanel";
 import { useServerDiagnostics } from "../hooks/useServerDiagnostics";
 import { useNetworkCandidates } from "../hooks/useNetworkCandidates";
 import { buildRoomPath, getDefaultServerBase, isLocalHostname, normalizeServerBase } from "../services/connection";
+import { saveLocalMedia } from "../services/localMediaStore";
 import { formatBytes, validateMediaSelection } from "../services/mediaLimits";
 
 function uploadRoom({ serverBase, roomId, mode, videoFile, subsFile, onProgress }) {
@@ -39,6 +40,26 @@ function uploadRoom({ serverBase, roomId, mode, videoFile, subsFile, onProgress 
     request.onabort = () => reject(new Error("Upload was cancelled."));
     request.send(formData);
   });
+}
+
+async function preparePeerRoom({ serverBase, roomId, videoFile, subsFile }) {
+  const payload = {
+    roomId,
+    videoName: videoFile.name,
+    videoSize: videoFile.size,
+    videoType: videoFile.type,
+    subsName: subsFile?.name || "",
+    subsText: subsFile ? await subsFile.text() : ""
+  };
+
+  const response = await fetch(`${serverBase}/upload/p2p`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(body.error || `Room prepare failed with ${response.status}`);
+  return body;
 }
 
 export default function Host() {
@@ -178,7 +199,11 @@ export default function Host() {
     setUploadError("");
 
     try {
-      const validationError = validateMediaSelection({ videoFile, subsFile, maxUploadBytes });
+      const validationError = validateMediaSelection({
+        videoFile,
+        subsFile,
+        maxUploadBytes: mode === "LAN" ? maxUploadBytes : undefined
+      });
       if (validationError) throw new Error(validationError);
 
       if (backend.status === "offline") {
@@ -188,14 +213,22 @@ export default function Host() {
         throw new Error(backend.detail || "Upload server is not ready.");
       }
 
-      await uploadRoom({
-        serverBase: uploadServerBase,
-        roomId,
-        mode,
-        videoFile,
-        subsFile,
-        onProgress: setUploadProgress
-      });
+      if (mode === "INTERNET") {
+        setUploadProgress(20);
+        await saveLocalMedia(roomId, videoFile, subsFile);
+        setUploadProgress(60);
+        await preparePeerRoom({ serverBase: uploadServerBase, roomId, videoFile, subsFile });
+        setUploadProgress(100);
+      } else {
+        await uploadRoom({
+          serverBase: uploadServerBase,
+          roomId,
+          mode,
+          videoFile,
+          subsFile,
+          onProgress: setUploadProgress
+        });
+      }
       setUploaded(true);
     } catch (error) {
       setUploadError(error.message || "Upload failed. Check that the Node server is running.");
@@ -230,7 +263,7 @@ export default function Host() {
               <p className="text-muted">
                 {mode === "LAN"
                   ? "LAN mode streams the uploaded file directly from this server to everyone nearby."
-                  : "Internet mode uses the same sync server, then attempts a WebRTC relay from the host player for lower-latency delivery."}
+                  : "Internet mode keeps the movie on this browser and sends viewers a peer-to-peer WebRTC stream, so the sync server never stores or serves the video."}
               </p>
             </div>
 
@@ -279,7 +312,7 @@ export default function Host() {
             {uploading && (
               <div className="mt-5">
                 <div className="mb-2 flex items-center justify-between text-xs font-medium text-muted">
-                  <span>Uploading source</span>
+                  <span>{mode === "INTERNET" ? "Preparing local source" : "Uploading source"}</span>
                   <span>{uploadProgress}%</span>
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-wash">
@@ -303,8 +336,8 @@ export default function Host() {
                     <span className="font-semibold text-ink">{backend.status}</span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-wash px-3 py-2 text-sm">
-                    <span className="text-muted">Uploads</span>
-                    <span className="font-semibold text-ink">{backend.ready?.uploadDirWritable ? "ready" : "checking"}</span>
+                    <span className="text-muted">{mode === "INTERNET" ? "Video storage" : "Uploads"}</span>
+                    <span className="font-semibold text-ink">{mode === "INTERNET" ? "browser only" : backend.ready?.uploadDirWritable ? "ready" : "checking"}</span>
                   </div>
                   <div className="flex items-center justify-between rounded-lg bg-wash px-3 py-2 text-sm">
                     <span className="text-muted">TURN</span>
@@ -312,7 +345,7 @@ export default function Host() {
                   </div>
                   {mode === "INTERNET" && backend.status === "ready" && !backend.diagnostics?.turnConfigured && (
                     <p className="text-xs leading-5 text-muted">
-                      Internet rooms work best with TURN. Without it, some viewers may fall back to server media.
+                      Internet rooms are free by default because video never touches the backend. TURN is still useful for restrictive networks.
                     </p>
                   )}
                 </div>
@@ -372,8 +405,8 @@ export default function Host() {
               </div>
               <div className="rounded-lg bg-wash p-4 text-sm leading-6 text-muted">
                 {mode === "INTERNET" && backend.internet?.status !== "ready"
-                  ? "Internet rooms need a public HTTPS backend and TURN before remote viewers are reliable."
-                  : "Keep this browser open as the host. For phones on Wi-Fi, use this computer's LAN address instead of localhost. For internet rooms, use a public HTTPS backend and TURN."}
+                  ? "Internet rooms need a public HTTPS sync backend. The selected movie stays in this browser for the full screening."
+                  : "Keep this browser open as the host. For phones on Wi-Fi, use this computer's LAN address instead of localhost. Internet rooms use this device's upload bandwidth instead of backend video storage."}
               </div>
             </div>
           </aside>
