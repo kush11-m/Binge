@@ -19,6 +19,7 @@ export class WebRTCProvider extends StreamingProvider {
   private handlers: Array<[string, (...args: any[]) => void]> = [];
   private viewerFallbackTimer: ReturnType<typeof setTimeout> | null = null;
   private viewerRetryTimer: ReturnType<typeof setInterval> | null = null;
+  private hostCaptureRetryTimer: ReturnType<typeof setTimeout> | null = null;
   private readonly iceServers = getIceServers();
   private readonly relayVideoBitrate = getRelayVideoBitrate();
 
@@ -68,6 +69,7 @@ export class WebRTCProvider extends StreamingProvider {
     this.handlers = [];
     if (this.viewerFallbackTimer) clearTimeout(this.viewerFallbackTimer);
     if (this.viewerRetryTimer) clearInterval(this.viewerRetryTimer);
+    if (this.hostCaptureRetryTimer) clearTimeout(this.hostCaptureRetryTimer);
     this.peers.forEach((peer) => {
       if (peer.statsTimer) clearInterval(peer.statsTimer);
       peer.pc.close();
@@ -102,7 +104,28 @@ export class WebRTCProvider extends StreamingProvider {
         return;
       }
 
-      this.localStream = capture.call(video);
+      await this.waitForHostSource(video);
+      if (!this.attachedVideo) return;
+
+      const nextStream = capture.call(video);
+      if (!nextStream.getTracks().length) {
+        this.setStatus({
+          label: "Loading local source",
+          detail: "Waiting for the browser to expose video tracks for the P2P relay",
+          quality: "P2P source",
+          transport: "WebRTC"
+        });
+        this.hostCaptureRetryTimer = setTimeout(() => {
+          this.hostCaptureRetryTimer = null;
+          void this.attachHost(video);
+        }, 500);
+        return;
+      }
+
+      this.localStream = nextStream;
+      this.localStream.addEventListener("addtrack", () => {
+        this.peers.forEach(({ pc }) => this.addTracks(pc));
+      });
       this.peers.forEach(({ pc }) => this.addTracks(pc));
       this.socket.emit("internet-host-ready", { roomId: this.roomId });
       this.setStatus({
@@ -121,6 +144,27 @@ export class WebRTCProvider extends StreamingProvider {
         transport: this.hasServerFallback() ? "HTTP" : "WebRTC"
       });
     }
+  }
+
+  private waitForHostSource(video: HTMLVideoElement) {
+    if (video.readyState >= 1 || video.srcObject) return Promise.resolve();
+
+    return new Promise<void>((resolve) => {
+      const cleanup = () => {
+        clearTimeout(timer);
+        video.removeEventListener("loadedmetadata", onReady);
+        video.removeEventListener("canplay", onReady);
+        video.removeEventListener("error", onReady);
+      };
+      const onReady = () => {
+        cleanup();
+        resolve();
+      };
+      const timer = setTimeout(onReady, 3000);
+      video.addEventListener("loadedmetadata", onReady, { once: true });
+      video.addEventListener("canplay", onReady, { once: true });
+      video.addEventListener("error", onReady, { once: true });
+    });
   }
 
   private bindSocket() {

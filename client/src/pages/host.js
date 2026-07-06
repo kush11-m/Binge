@@ -96,7 +96,13 @@ export default function Host() {
   const suggestedLanUrl = mode === "LAN" ? network.candidates[0]?.url : "";
   const maxUploadBytes = backend.diagnostics?.maxUploadBytes;
   const maxUploadLabel = maxUploadBytes ? formatBytes(maxUploadBytes) : "";
-  const canPrepareRoom = Boolean(videoFile) && !uploaded && !uploading && backend.status !== "offline" && backend.status !== "degraded";
+  const p2pPrepareSupported = Boolean(backend.capabilities?.p2pPrepare || backend.diagnostics?.supportsP2pPrepare);
+  const backendUsable = backend.status !== "offline" && backend.status !== "degraded";
+  const canPrepareRoom = Boolean(videoFile)
+    && !uploaded
+    && !uploading
+    && backendUsable
+    && (mode !== "INTERNET" || p2pPrepareSupported);
 
   const connectionChecks = useMemo(() => {
     if (!mounted) return [];
@@ -140,6 +146,11 @@ export default function Host() {
       return [
         ...baseChecks,
         {
+          label: "P2P rooms",
+          value: p2pPrepareSupported ? "Ready" : backend.status === "ready" ? "Update backend" : "Checking",
+          ready: p2pPrepareSupported
+        },
+        {
           label: "Public backend",
           value: publicBackend ? "HTTPS URL set" : "Needs public HTTPS",
           ready: publicBackend
@@ -154,6 +165,11 @@ export default function Host() {
 
     return [
       ...baseChecks,
+      {
+        label: "P2P rooms",
+        value: p2pPrepareSupported ? "Ready" : "Update backend",
+        ready: p2pPrepareSupported
+      },
       ...backend.internet.checks
         .filter((check) => check.id !== "cors")
         .map((check) => ({
@@ -162,7 +178,7 @@ export default function Host() {
           ready: check.ready
         }))
     ];
-  }, [backend.diagnostics?.turnConfigured, backend.status, mode, mounted, serverBase]);
+  }, [backend.diagnostics?.turnConfigured, backend.internet?.checks, backend.status, mode, mounted, p2pPrepareSupported, serverBase]);
 
   async function copyShareLink() {
     if (!shareLink) return;
@@ -214,6 +230,9 @@ export default function Host() {
       }
 
       if (mode === "INTERNET") {
+        if (!p2pPrepareSupported) {
+          throw new Error("This backend is reachable but does not support free P2P rooms yet. Redeploy the latest backend, then try again.");
+        }
         setUploadProgress(20);
         await saveLocalMedia(roomId, videoFile, subsFile);
         setUploadProgress(60);
@@ -332,6 +351,10 @@ export default function Host() {
                 <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted">Backend</p>
                 <div className="mt-3 space-y-2">
                   <div className="flex items-center justify-between rounded-lg bg-wash px-3 py-2 text-sm">
+                    <span className="text-muted">{mode === "INTERNET" ? "P2P rooms" : "Server"}</span>
+                    <span className="font-semibold text-ink">{mode === "INTERNET" ? p2pPrepareSupported ? "ready" : backend.status === "ready" ? "update backend" : "checking" : backend.status}</span>
+                  </div>
+                  <div className="flex items-center justify-between rounded-lg bg-wash px-3 py-2 text-sm">
                     <span className="text-muted">Server</span>
                     <span className="font-semibold text-ink">{backend.status}</span>
                   </div>
@@ -346,6 +369,11 @@ export default function Host() {
                   {mode === "INTERNET" && backend.status === "ready" && !backend.diagnostics?.turnConfigured && (
                     <p className="text-xs leading-5 text-muted">
                       Internet rooms are free by default because video never touches the backend. TURN is still useful for restrictive networks.
+                    </p>
+                  )}
+                  {mode === "INTERNET" && backend.status === "ready" && !p2pPrepareSupported && (
+                    <p className="text-xs leading-5 text-amber-200">
+                      This backend is an older build. Redeploy the server so `/upload/p2p` and `/capabilities` are available.
                     </p>
                   )}
                 </div>
@@ -404,7 +432,9 @@ export default function Host() {
                 ))}
               </div>
               <div className="rounded-lg bg-wash p-4 text-sm leading-6 text-muted">
-                {mode === "INTERNET" && backend.internet?.status !== "ready"
+                {mode === "INTERNET" && backend.status === "ready" && !p2pPrepareSupported
+                  ? "The sync server is reachable, but it is missing the latest P2P room API. Redeploy the backend before preparing an internet room."
+                  : mode === "INTERNET" && backend.internet?.status !== "ready"
                   ? "Internet rooms need a public HTTPS sync backend. The selected movie stays in this browser for the full screening."
                   : "Keep this browser open as the host. For phones on Wi-Fi, use this computer's LAN address instead of localhost. Internet rooms use this device's upload bandwidth instead of backend video storage."}
               </div>

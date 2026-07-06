@@ -1,7 +1,7 @@
 import Head from "next/head";
 import { useRouter } from "next/router";
 import { useEffect, useMemo, useState } from "react";
-import { buildRoomPath, getDefaultServerBase, isLocalHostname, normalizeServerBase } from "../services/connection";
+import { buildRoomPath, getDefaultServerBase, getDefaultStreamMode, isLocalHostname, normalizeServerBase } from "../services/connection";
 import { useServerDiagnostics } from "../hooks/useServerDiagnostics";
 import { useNetworkCandidates } from "../hooks/useNetworkCandidates";
 
@@ -16,6 +16,7 @@ export default function Home() {
 
   useEffect(() => {
     setMounted(true);
+    setMode(getDefaultStreamMode());
     setServerBase(getDefaultServerBase());
   }, []);
 

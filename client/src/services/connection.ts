@@ -25,6 +25,11 @@ export function getDefaultServerBase() {
   return `http://${hostname}:${fallbackPort}`;
 }
 
+export function getDefaultStreamMode() {
+  if (typeof window === "undefined") return "LAN";
+  return isLocalHostname(window.location.hostname) ? "LAN" : "INTERNET";
+}
+
 export function buildRoomPath(roomId: string, mode: StreamMode | string, options: { serverBase?: string; host?: boolean } = {}) {
   const params = new URLSearchParams({ mode: mode === "INTERNET" ? "INTERNET" : "LAN" });
   if (options.serverBase) params.set("server", options.serverBase);

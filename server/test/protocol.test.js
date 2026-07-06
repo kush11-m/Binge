@@ -114,8 +114,14 @@ test("reports health, readiness, and non-secret diagnostics", async () => {
     assert.equal(diagnostics.corsOrigin, "restricted");
     assert.equal(typeof diagnostics.activeRooms, "number");
     assert.equal(diagnostics.maxUploadBytes, 8589934592);
+    assert.equal(diagnostics.supportsP2pPrepare, true);
     assert.deepEqual(diagnostics.supportedSubtitleExtensions, [".srt", ".vtt"]);
     assert.ok(diagnostics.supportedVideoExtensions.includes(".mp4"));
+
+    const capabilities = await fetch(`${baseUrl}/capabilities`).then((res) => res.json());
+    assert.equal(capabilities.status, "ok");
+    assert.equal(capabilities.apiVersion, 2);
+    assert.equal(capabilities.p2pPrepare, true);
 
     const network = await fetch(`${baseUrl}/network`).then((res) => res.json());
     assert.equal(network.status, "ok");

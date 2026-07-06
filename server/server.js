@@ -124,8 +124,19 @@ function createBingeServer(options = {}) {
       supportedVideoExtensions: SUPPORTED_VIDEO_EXTENSIONS,
       supportedSubtitleExtensions: SUPPORTED_SUBTITLE_EXTENSIONS,
       uploadDirWritable: true,
+      supportsP2pPrepare: true,
       turnConfigured: hasTurnConfig(env),
       corsOrigin: corsOrigin === "*" ? "all" : "restricted"
+    });
+  });
+
+  app.get("/capabilities", (_req, res) => {
+    res.json({
+      status: "ok",
+      apiVersion: 2,
+      p2pPrepare: true,
+      lanUpload: true,
+      diagnostics: true
     });
   });
 

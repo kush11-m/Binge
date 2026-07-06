@@ -12,16 +12,24 @@ export type ServerDiagnostics = {
     status: string;
     uploadDirWritable: boolean;
   };
-  diagnostics?: {
-    activeRooms: number;
-    activeCallRooms: number;
-    maxRoomUsers: number;
-    maxUploadBytes: number;
-    supportedVideoExtensions: string[];
-    supportedSubtitleExtensions: string[];
-    turnConfigured: boolean;
-    corsOrigin: "all" | "restricted";
-  };
+	  diagnostics?: {
+	    activeRooms: number;
+	    activeCallRooms: number;
+	    maxRoomUsers: number;
+	    maxUploadBytes: number;
+	    supportedVideoExtensions: string[];
+	    supportedSubtitleExtensions: string[];
+	    supportsP2pPrepare?: boolean;
+	    turnConfigured: boolean;
+	    corsOrigin: "all" | "restricted";
+	  };
+	  capabilities?: {
+	    status: string;
+	    apiVersion?: number;
+	    p2pPrepare?: boolean;
+	    lanUpload?: boolean;
+	    diagnostics?: boolean;
+	  };
   internet?: {
     status: "ready" | "needs-attention";
     publicUrl: string;
@@ -40,6 +48,14 @@ async function getJson<T>(url: string): Promise<T> {
   return response.json();
 }
 
+async function getOptionalJson<T>(url: string): Promise<T | undefined> {
+  try {
+    return await getJson<T>(url);
+  } catch (_error) {
+    return undefined;
+  }
+}
+
 export function useServerDiagnostics(serverBase: string, pollMs = 15000) {
   const [diagnostics, setDiagnostics] = useState<ServerDiagnostics>({
     status: "checking",
@@ -53,22 +69,29 @@ export function useServerDiagnostics(serverBase: string, pollMs = 15000) {
 
     async function check() {
       try {
-        const [health, ready, runtime, internet] = await Promise.all([
-          getJson<ServerDiagnostics["health"]>(`${serverBase}/health`),
-          getJson<ServerDiagnostics["ready"]>(`${serverBase}/ready`),
-          getJson<ServerDiagnostics["diagnostics"]>(`${serverBase}/diagnostics`),
-          getJson<ServerDiagnostics["internet"]>(`${serverBase}/internet-readiness`)
+        const health = await getJson<ServerDiagnostics["health"]>(`${serverBase}/health`);
+        const [ready, runtime, internet, capabilities] = await Promise.all([
+          getOptionalJson<ServerDiagnostics["ready"]>(`${serverBase}/ready`),
+          getOptionalJson<ServerDiagnostics["diagnostics"]>(`${serverBase}/diagnostics`),
+          getOptionalJson<ServerDiagnostics["internet"]>(`${serverBase}/internet-readiness`),
+          getOptionalJson<ServerDiagnostics["capabilities"]>(`${serverBase}/capabilities`)
         ]);
 
         if (cancelled) return;
 
-        const uploadReady = Boolean(ready?.uploadDirWritable);
+        const uploadReady = ready ? Boolean(ready.uploadDirWritable) : true;
+        const limitedDiagnostics = !ready || !runtime;
         setDiagnostics({
           status: uploadReady ? "ready" : "degraded",
-          detail: uploadReady ? "Backend ready" : "Upload storage is not writable",
+          detail: uploadReady
+            ? limitedDiagnostics
+              ? "Backend reachable; deploy latest backend for full diagnostics"
+              : "Backend ready"
+            : "Upload storage is not writable",
           health,
           ready,
           diagnostics: runtime,
+          capabilities,
           internet
         });
       } catch (error) {
