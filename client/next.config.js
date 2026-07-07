@@ -24,7 +24,7 @@ const nextConfig = {
         destination: "/favicon.svg"
       },
       {
-        source: "/backend/:path*",
+        source: "/sync-api/:path*",
         destination: "https://syncstream-backend-vosk.onrender.com/:path*"
       }
     ];
