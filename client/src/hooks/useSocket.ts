@@ -14,6 +14,7 @@ export function useSocket(serverUrl) {
     const proxiedPath = isProxied ? `${serverUrl.replace(/\/$/, "")}/socket.io` : undefined;
     const socketInstance = io(isProxied ? window.location.origin : serverUrl, {
       path: proxiedPath,
+      addTrailingSlash: !isProxied,
       transports: isProxied ? ["polling"] : ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: Infinity,
