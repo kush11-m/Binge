@@ -22,6 +22,10 @@ const nextConfig = {
       {
         source: "/favicon.ico",
         destination: "/favicon.svg"
+      },
+      {
+        source: "/backend/:path*",
+        destination: "https://syncstream-backend-vosk.onrender.com/:path*"
       }
     ];
   }
