@@ -10,10 +10,11 @@ export function useSocket(serverUrl) {
 
   useEffect(() => {
     if (!serverUrl) return;
-    const proxiedPath = serverUrl.startsWith("/") ? `${serverUrl.replace(/\/$/, "")}/socket.io` : undefined;
-    const socketInstance = io(serverUrl.startsWith("/") ? window.location.origin : serverUrl, {
+    const isProxied = serverUrl.startsWith("/");
+    const proxiedPath = isProxied ? `${serverUrl.replace(/\/$/, "")}/socket.io` : undefined;
+    const socketInstance = io(isProxied ? window.location.origin : serverUrl, {
       path: proxiedPath,
-      transports: ["websocket", "polling"],
+      transports: isProxied ? ["polling"] : ["websocket", "polling"],
       reconnection: true,
       reconnectionAttempts: Infinity,
       reconnectionDelay: 500,
