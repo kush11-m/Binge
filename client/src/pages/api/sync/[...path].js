@@ -20,7 +20,8 @@ function readBody(req) {
 
 export default async function handler(req, res) {
   const path = Array.isArray(req.query.path) ? req.query.path.join("/") : "";
-  const target = new URL(`/${path}`, BACKEND_ORIGIN);
+  const targetPath = path === "socket.io" ? "/socket.io/" : `/${path}`;
+  const target = new URL(targetPath, BACKEND_ORIGIN);
 
   for (const [key, value] of Object.entries(req.query)) {
     if (key === "path") continue;
