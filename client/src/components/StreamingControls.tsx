@@ -52,6 +52,7 @@ export default function StreamingControls({
   compact = false
 }) {
   const containerRef = useRef(null);
+  const seekInputRef = useRef(null);
   const progressRef = useRef(null);
   const bufferRef = useRef(null);
   const handleRef = useRef(null);
@@ -60,6 +61,11 @@ export default function StreamingControls({
   const hideTimerRef = useRef(null);
   const volumeHideTimerRef = useRef(null);
   const draggingRef = useRef(false);
+  const seekRatioRef = useRef(0);
+  const durationRef = useRef(duration || 0);
+  const onSeekRef = useRef(onSeek);
+  const onPlayPauseRef = useRef(onPlayPause);
+  const onFullscreenRef = useRef(onFullscreen);
   const [visible, setVisible] = useState(true);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
   const [volumePanelOpen, setVolumePanelOpen] = useState(false);
@@ -71,6 +77,16 @@ export default function StreamingControls({
   });
   const [muted, setMuted] = useState(false);
   const lastVolumeRef = useRef(volume > 0 ? volume : 1);
+
+  useEffect(() => {
+    durationRef.current = duration || 0;
+  }, [duration]);
+
+  useEffect(() => {
+    onSeekRef.current = onSeek;
+    onPlayPauseRef.current = onPlayPause;
+    onFullscreenRef.current = onFullscreen;
+  }, [onSeek, onPlayPause, onFullscreen]);
 
   useEffect(() => {
     const v = videoRef?.current;
@@ -110,29 +126,36 @@ export default function StreamingControls({
       if (speedMenuOpen || draggingRef.current) return setVisible(true);
       setVisible(true);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+      if (!isPlaying) return;
       hideTimerRef.current = setTimeout(() => {
-        if (!draggingRef.current && !speedMenuOpen) setVisible(false);
+        if (!draggingRef.current && !speedMenuOpen && isPlaying) setVisible(false);
       }, 2500);
     }
 
-    function onActivity() { show(); }
+    function onActivity(event) {
+      if (event?.type === "mousemove") {
+        const rect = el.getBoundingClientRect();
+        const x = event.clientX;
+        const y = event.clientY;
+        if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) return;
+      }
+      show();
+    }
 
-    el.addEventListener('mousemove', onActivity);
-    el.addEventListener('mouseenter', onActivity);
-    el.addEventListener('touchstart', onActivity, { passive: true });
+    window.addEventListener('mousemove', onActivity);
+    window.addEventListener('touchstart', onActivity, { passive: true });
     document.addEventListener('keydown', onActivity);
 
     // initial timer start
     show();
 
     return () => {
-      el.removeEventListener('mousemove', onActivity);
-      el.removeEventListener('mouseenter', onActivity);
-      el.removeEventListener('touchstart', onActivity);
+      window.removeEventListener('mousemove', onActivity);
+      window.removeEventListener('touchstart', onActivity);
       document.removeEventListener('keydown', onActivity);
       if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
     };
-  }, [speedMenuOpen]);
+  }, [speedMenuOpen, isPlaying]);
 
   // progress animation loop - update DOM directly to avoid rerenders
   useEffect(() => {
@@ -143,9 +166,12 @@ export default function StreamingControls({
       const dur = video.duration || duration || 0;
       const cur = video.currentTime || 0;
       const pct = dur ? (cur / dur) * 100 : 0;
-      if (progressRef.current) progressRef.current.style.width = `${pct}%`;
-      if (handleRef.current) handleRef.current.style.left = `${pct}%`;
-      if (timeRef.current) timeRef.current.textContent = `${fmt(cur)} / ${fmt(dur)}`;
+      if (!draggingRef.current) {
+        if (progressRef.current) progressRef.current.style.width = `${pct}%`;
+        if (handleRef.current) handleRef.current.style.left = `${pct}%`;
+        if (seekInputRef.current) seekInputRef.current.value = `${Math.round(pct * 10)}`;
+        if (timeRef.current) timeRef.current.textContent = `${fmt(cur)} / ${fmt(dur)}`;
+      }
       // buffered
       try {
         if (bufferRef.current && video.buffered && video.buffered.length) {
@@ -161,69 +187,45 @@ export default function StreamingControls({
     return () => cancelAnimationFrame(rafRef.current);
   }, [videoRef, duration]);
 
-  // seeking handlers
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
+  function getSeekDuration() {
+    return videoRef.current?.duration || durationRef.current || 0;
+  }
 
-    function getPos(evt) {
-      const rect = container.getBoundingClientRect();
-      const x = ('touches' in evt && evt.touches[0]) ? evt.touches[0].clientX : evt.clientX;
-      return Math.max(0, Math.min(1, (x - rect.left) / rect.width));
-    }
+  function previewSeekValue(rawValue) {
+    const ratio = Math.max(0, Math.min(1, Number(rawValue) / 1000));
+    const dur = getSeekDuration();
+    const time = dur * ratio;
+    seekRatioRef.current = ratio;
+    if (progressRef.current) progressRef.current.style.width = `${ratio * 100}%`;
+    if (handleRef.current) handleRef.current.style.left = `${ratio * 100}%`;
+    if (timeRef.current) timeRef.current.textContent = `${fmt(time)} / ${fmt(dur)}`;
+    return time;
+  }
 
-    function onDown(e) {
-      draggingRef.current = true;
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      setVisible(true);
-      document.body.style.userSelect = 'none';
-      const p = getPos(e);
-      const t = (videoRef.current.duration || duration || 0) * p;
-      if (handleRef.current) handleRef.current.style.left = `${p * 100}%`;
-      if (progressRef.current) progressRef.current.style.width = `${p * 100}%`;
-    }
+  function setSeekInputFromPointer(event) {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width));
+    const value = String(Math.round(ratio * 1000));
+    event.currentTarget.value = value;
+    previewSeekValue(value);
+  }
 
-    function onMove(e) {
-      if (!draggingRef.current) return;
-      const p = getPos(e);
-      const t = (videoRef.current.duration || duration || 0) * p;
-      if (handleRef.current) handleRef.current.style.left = `${p * 100}%`;
-      if (progressRef.current) progressRef.current.style.width = `${p * 100}%`;
-      if (timeRef.current) timeRef.current.textContent = `${fmt(t)} / ${fmt(videoRef.current.duration || duration || 0)}`;
-    }
+  function beginSeek(event) {
+    draggingRef.current = true;
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setVisible(true);
+    if (Number.isFinite(event?.clientX)) setSeekInputFromPointer(event);
+  }
 
-    function onUp(e) {
-      if (!draggingRef.current) return;
-      draggingRef.current = false;
-      document.body.style.userSelect = '';
-      const p = getPos(e);
-      const t = (videoRef.current.duration || duration || 0) * p;
-      onSeek(t);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+  function commitSeekValue(rawValue) {
+    const time = previewSeekValue(rawValue);
+    draggingRef.current = false;
+    onSeekRef.current(time);
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    if (isPlaying) {
       hideTimerRef.current = setTimeout(() => { if (!speedMenuOpen) setVisible(false); }, 2500);
     }
-
-    const track = container.querySelector('.ss-track');
-    if (track) {
-      track.addEventListener('mousedown', onDown);
-      track.addEventListener('touchstart', onDown, { passive: true });
-    }
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('touchmove', onMove, { passive: true });
-    window.addEventListener('mouseup', onUp);
-    window.addEventListener('touchend', onUp);
-
-    return () => {
-      if (track) {
-        track.removeEventListener('mousedown', onDown);
-        track.removeEventListener('touchstart', onDown);
-      }
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('touchmove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      window.removeEventListener('touchend', onUp);
-    };
-  }, [videoRef, duration, onSeek]);
+  }
 
   // double-click seek
   useEffect(() => {
@@ -235,37 +237,38 @@ export default function StreamingControls({
       const w = rect.width;
       const seekBy = 10;
       if (x < w / 2) {
-        video.currentTime = Math.max(0, (video.currentTime || 0) - seekBy);
+        onSeekRef.current(Math.max(0, (video.currentTime || 0) - seekBy));
       } else {
-        video.currentTime = Math.min(video.duration || duration || 0, (video.currentTime || 0) + seekBy);
+        onSeekRef.current(Math.min(video.duration || durationRef.current || 0, (video.currentTime || 0) + seekBy));
       }
     }
     video.addEventListener('dblclick', onDbl);
     return () => video.removeEventListener('dblclick', onDbl);
-  }, [videoRef, duration]);
+  }, [videoRef]);
 
   // keyboard shortcuts
   useEffect(() => {
     function onKey(e) {
-      if (e.code === 'Space') { e.preventDefault(); onPlayPause(); }
-      if (e.key === 'f' || e.key === 'F') { onFullscreen(); }
-      if (e.key === 'ArrowRight') { const v = videoRef.current; if (v) v.currentTime = Math.min((v.duration||duration||0), (v.currentTime||0) + 5); }
-      if (e.key === 'ArrowLeft') { const v = videoRef.current; if (v) v.currentTime = Math.max(0, (v.currentTime||0) - 5); }
+      const target = e.target;
+      if (target instanceof HTMLElement && ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(target.tagName)) return;
+      if (e.code === 'Space') { e.preventDefault(); onPlayPauseRef.current(); }
+      if (e.key === 'f' || e.key === 'F') { onFullscreenRef.current(); }
+      if (e.key === 'ArrowRight') { const v = videoRef.current; if (v) onSeekRef.current(Math.min((v.duration||durationRef.current||0), (v.currentTime||0) + 5)); }
+      if (e.key === 'ArrowLeft') { const v = videoRef.current; if (v) onSeekRef.current(Math.max(0, (v.currentTime||0) - 5)); }
     }
     
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
     };
-  }, [onPlayPause, onFullscreen, videoRef, duration]);
+  }, [videoRef]);
 
   function skipBy(seconds) {
     const video = videoRef.current;
     if (!video) return;
-    const max = video.duration || duration || 0;
+    const max = video.duration || durationRef.current || 0;
     const nextTime = Math.max(0, Math.min(max, (video.currentTime || 0) + seconds));
-    video.currentTime = nextTime;
-    onSeek(nextTime);
+    onSeekRef.current(nextTime);
   }
 
   function setMediaVolume(nextVolume) {
@@ -396,10 +399,32 @@ export default function StreamingControls({
           </div>
 
           <div className="order-first flex min-w-0 flex-[1_1_100%] items-center gap-3 sm:px-2 lg:order-none lg:flex-[1_1_auto]">
-            <div className="relative h-1.5 min-w-[120px] flex-1 cursor-pointer overflow-visible rounded-full bg-white/10 group ss-track">
-              <div ref={bufferRef} className="absolute left-0 top-0 bottom-0 bg-white/20 rounded-full" style={{ width: '0%' }} />
-              <div ref={progressRef} className="absolute left-0 top-0 bottom-0 rounded-full bg-neon shadow-[0_0_10px_rgba(57,255,136,0.3)]" style={{ width: '0%' }} />
-              <div ref={handleRef} className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-white shadow-[0_0_10px_rgba(57,255,136,0.8)] opacity-0 transition-opacity group-hover:opacity-100" style={{ left: '0%', transform: 'translate(-50%, -50%)' }} />
+            <div className="ss-track group relative h-2 min-w-[120px] flex-1 overflow-visible rounded-full bg-white/10">
+              <div ref={bufferRef} className="pointer-events-none absolute bottom-0 left-0 top-0 rounded-full bg-white/20" style={{ width: '0%' }} />
+              <div ref={progressRef} className="pointer-events-none absolute bottom-0 left-0 top-0 rounded-full bg-neon shadow-[0_0_10px_rgba(57,255,136,0.3)]" style={{ width: '0%' }} />
+              <div ref={handleRef} className="pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 rounded-full bg-white opacity-0 shadow-[0_0_10px_rgba(57,255,136,0.8)] transition-opacity group-hover:opacity-100" style={{ left: '0%', transform: 'translate(-50%, -50%)' }} />
+              <input
+                ref={seekInputRef}
+                type="range"
+                min="0"
+                max="1000"
+                step="1"
+                defaultValue="0"
+                className="seek-range absolute -inset-y-3 left-0 z-10 h-8 w-full cursor-pointer touch-none"
+                aria-label="Seek video"
+                onPointerDown={beginSeek}
+                onPointerMove={(event) => {
+                  if (draggingRef.current && Number.isFinite(event.clientX)) setSeekInputFromPointer(event);
+                }}
+                onPointerUp={(event) => commitSeekValue(event.currentTarget.value)}
+                onClick={(event) => commitSeekValue(event.currentTarget.value)}
+                onPointerCancel={() => {
+                  draggingRef.current = false;
+                }}
+                onInput={(event) => previewSeekValue(event.currentTarget.value)}
+                onKeyDown={beginSeek}
+                onKeyUp={(event) => commitSeekValue(event.currentTarget.value)}
+              />
             </div>
             <div ref={timeRef} className="min-w-[88px] shrink-0 text-right font-mono text-[11px] font-medium text-neon sm:min-w-[96px] sm:text-xs">0:00 / 0:00</div>
           </div>
