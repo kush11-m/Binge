@@ -31,6 +31,7 @@ function Room() {
   const [error, setError] = useState("");
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [callActive, setCallActive] = useState(false);
+  const [fullscreenCallSize, setFullscreenCallSize] = useState(340);
   const [origin, setOrigin] = useState("");
   const [copied, setCopied] = useState<"invite" | "code" | "">("");
 
@@ -251,6 +252,39 @@ function Room() {
     container.requestFullscreen?.().catch(() => {});
   }
 
+  function startFullscreenResize(event: React.PointerEvent<HTMLButtonElement>) {
+    if (!playerContainerRef.current) return;
+    event.preventDefault();
+    const container = playerContainerRef.current;
+    const isWide = window.matchMedia("(min-width: 1024px)").matches;
+
+    function clamp(value: number, min: number, max: number) {
+      return Math.max(min, Math.min(max, value));
+    }
+
+    function onPointerMove(moveEvent: PointerEvent) {
+      const rect = container.getBoundingClientRect();
+      if (isWide) {
+        const nextWidth = rect.right - moveEvent.clientX;
+        setFullscreenCallSize(clamp(nextWidth, 280, Math.min(560, rect.width * 0.45)));
+        return;
+      }
+
+      const nextHeight = rect.bottom - moveEvent.clientY;
+      setFullscreenCallSize(clamp(nextHeight, 160, Math.min(420, rect.height * 0.48)));
+    }
+
+    function onPointerUp() {
+      document.body.style.userSelect = "";
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+    }
+
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+  }
+
   const effectiveMode = (roomState?.mode || mode) as StreamMode;
   const ready = Boolean(roomState?.videoUrl);
   const showFullscreenCall = isFullscreen && callActive;
@@ -339,9 +373,10 @@ function Room() {
 
         <section
           ref={playerContainerRef}
+          style={showFullscreenCall ? { "--call-size": `${fullscreenCallSize}px` } as React.CSSProperties : undefined}
           className={
             showFullscreenCall
-              ? "fullscreen-room-grid grid h-[100dvh] min-h-0 grid-rows-[minmax(0,1fr)_minmax(180px,34dvh)] bg-black text-white lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] lg:grid-rows-1"
+              ? "fullscreen-room-grid grid h-[100dvh] min-h-0 bg-black text-white"
               : isFullscreen
                 ? "h-[100dvh] bg-black text-white"
               : "grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]"
@@ -397,6 +432,18 @@ function Room() {
               />
             </div>
           </div>
+
+          {showFullscreenCall && (
+            <button
+              className="fullscreen-split-handle"
+              type="button"
+              onPointerDown={startFullscreenResize}
+              aria-label="Resize stream and call"
+              title="Resize stream and call"
+            >
+              <span />
+            </button>
+          )}
 
           <aside className={showFullscreenCall ? "fullscreen-call-rail min-h-0 overflow-hidden border-t border-white/10 bg-[#07100b] p-2 sm:p-3 lg:border-l lg:border-t-0" : isFullscreen ? "hidden" : "space-y-5"}>
             <VideoCall
