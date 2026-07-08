@@ -48,7 +48,8 @@ export default function StreamingControls({
   onToggleSubs,
   subsEnabled,
   onFullscreen,
-  fullscreen = false
+  fullscreen = false,
+  compact = false
 }) {
   const containerRef = useRef(null);
   const progressRef = useRef(null);
@@ -57,9 +58,11 @@ export default function StreamingControls({
   const timeRef = useRef(null);
   const rafRef = useRef(null);
   const hideTimerRef = useRef(null);
+  const volumeHideTimerRef = useRef(null);
   const draggingRef = useRef(false);
   const [visible, setVisible] = useState(true);
   const [speedMenuOpen, setSpeedMenuOpen] = useState(false);
+  const [volumePanelOpen, setVolumePanelOpen] = useState(false);
   const [speed, setSpeed] = useState(() => {
     try { return Number(localStorage.getItem('ss-speed')) || 1; } catch { return 1; }
   });
@@ -93,6 +96,10 @@ export default function StreamingControls({
     video.addEventListener("volumechange", onVolumeChange);
     return () => video.removeEventListener("volumechange", onVolumeChange);
   }, [videoRef]);
+
+  useEffect(() => () => {
+    if (volumeHideTimerRef.current) clearTimeout(volumeHideTimerRef.current);
+  }, []);
 
   // auto-hide logic
   useEffect(() => {
@@ -294,11 +301,25 @@ export default function StreamingControls({
     }
   }
 
+  function showVolumePanel() {
+    if (volumeHideTimerRef.current) clearTimeout(volumeHideTimerRef.current);
+    setVolumePanelOpen(true);
+    setVisible(true);
+  }
+
+  function scheduleVolumePanelClose() {
+    if (volumeHideTimerRef.current) clearTimeout(volumeHideTimerRef.current);
+    volumeHideTimerRef.current = setTimeout(() => setVolumePanelOpen(false), 1200);
+  }
+
   const isMuted = muted || volume === 0;
 
   const barPosition = fullscreen
-    ? "left-4 right-4 bottom-4 sm:left-6 sm:right-6 sm:bottom-6"
+    ? "left-2 right-2 bottom-2 sm:left-4 sm:right-4 sm:bottom-4"
     : "left-4 right-4 bottom-4";
+  const panelDensity = compact
+    ? "gap-2 px-2 py-2 sm:gap-3 sm:px-3"
+    : "gap-3 px-3 py-3 sm:gap-4 sm:px-4";
 
   return (
     <div ref={containerRef} className="streaming-controls-ui absolute inset-0 z-20 pointer-events-none">
@@ -311,7 +332,7 @@ export default function StreamingControls({
       </div>
 
       <div className={`absolute ${barPosition} pointer-events-auto transition-all duration-300 ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
-        <div className="flex flex-wrap items-center gap-3 rounded-lg border border-white/10 bg-black/80 px-3 py-3 shadow-2xl backdrop-blur-xl sm:flex-nowrap sm:gap-4 sm:px-4">
+        <div className={`flex max-w-full flex-wrap items-center rounded-lg border border-white/10 bg-black/80 shadow-2xl backdrop-blur-xl ${panelDensity} lg:flex-nowrap`}>
           <button onClick={onPlayPause} className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-neon text-black transition hover:bg-neon/90">
             {isPlaying ? (
                <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>
@@ -320,7 +341,7 @@ export default function StreamingControls({
             )}
           </button>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <SeekButton
               direction="back"
               label="Rewind"
@@ -331,7 +352,13 @@ export default function StreamingControls({
               label="Forward"
               onClick={() => skipBy(10)}
             />
-            <div className="group/volume relative ml-1 flex items-center">
+            <div
+              className="relative ml-1 flex items-center"
+              onMouseEnter={showVolumePanel}
+              onMouseLeave={scheduleVolumePanelClose}
+              onFocus={showVolumePanel}
+              onBlur={scheduleVolumePanelClose}
+            >
               <button
                 onClick={toggleMute}
                 className="rounded-md p-1 text-white/65 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-neon/50"
@@ -348,7 +375,11 @@ export default function StreamingControls({
                   </svg>
                 )}
               </button>
-              <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 flex h-28 -translate-x-1/2 items-center rounded-lg border border-white/10 bg-black/90 px-2 py-3 opacity-0 shadow-xl backdrop-blur transition group-hover/volume:pointer-events-auto group-hover/volume:opacity-100 group-focus-within/volume:pointer-events-auto group-focus-within/volume:opacity-100">
+              <div
+                className={`absolute bottom-full left-1/2 mb-2 flex h-32 w-12 -translate-x-1/2 items-center justify-center rounded-lg border border-white/10 bg-black/90 px-2 py-3 shadow-xl backdrop-blur transition ${volumePanelOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"}`}
+                onMouseEnter={showVolumePanel}
+                onMouseLeave={scheduleVolumePanelClose}
+              >
                 <input
                   type="range"
                   min="0"
@@ -356,7 +387,7 @@ export default function StreamingControls({
                   step="0.01"
                   value={isMuted ? 0 : volume}
                   onChange={(event) => setMediaVolume(event.target.value)}
-                  className="h-24 w-6 cursor-pointer accent-neon [writing-mode:vertical-lr]"
+                  className="volume-range cursor-pointer accent-neon"
                   aria-label="Volume"
                   title="Volume"
                 />
@@ -364,13 +395,13 @@ export default function StreamingControls({
             </div>
           </div>
 
-          <div className="order-first flex w-full flex-1 items-center gap-3 sm:order-none sm:w-auto sm:px-2">
-            <div className="w-full relative h-1.5 rounded-full bg-white/10 group cursor-pointer ss-track overflow-visible">
+          <div className="order-first flex min-w-0 flex-[1_1_100%] items-center gap-3 sm:px-2 lg:order-none lg:flex-[1_1_auto]">
+            <div className="relative h-1.5 min-w-[120px] flex-1 cursor-pointer overflow-visible rounded-full bg-white/10 group ss-track">
               <div ref={bufferRef} className="absolute left-0 top-0 bottom-0 bg-white/20 rounded-full" style={{ width: '0%' }} />
               <div ref={progressRef} className="absolute left-0 top-0 bottom-0 rounded-full bg-neon shadow-[0_0_10px_rgba(57,255,136,0.3)]" style={{ width: '0%' }} />
               <div ref={handleRef} className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-white shadow-[0_0_10px_rgba(57,255,136,0.8)] opacity-0 transition-opacity group-hover:opacity-100" style={{ left: '0%', transform: 'translate(-50%, -50%)' }} />
             </div>
-            <div ref={timeRef} className="min-w-[96px] shrink-0 text-right font-mono text-xs font-medium text-neon">0:00 / 0:00</div>
+            <div ref={timeRef} className="min-w-[88px] shrink-0 text-right font-mono text-[11px] font-medium text-neon sm:min-w-[96px] sm:text-xs">0:00 / 0:00</div>
           </div>
 
           <div className="ml-auto flex shrink-0 items-center gap-2 sm:ml-0">
