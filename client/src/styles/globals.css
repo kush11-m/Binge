@@ -168,9 +168,10 @@ div:fullscreen aside,
 div:-webkit-full-screen aside {
   position: absolute !important;
   right: 28px !important;
-  top: 48px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
   width: 320px !important;
-  max-height: calc(100vh - 120px) !important;
+  max-height: calc(100vh - 96px) !important;
   overflow-y: auto !important;
   z-index: 40 !important;
 }
@@ -195,8 +196,9 @@ div:fullscreen .room-layout > aside,
 div:-webkit-full-screen .room-layout > aside {
   position: absolute !important;
   right: 28px !important;
-  top: 48px !important;
-  bottom: 28px !important;
+  top: 50% !important;
+  bottom: auto !important;
+  transform: translateY(-50%) !important;
   width: 320px !important;
   z-index: 40 !important;
 }
@@ -259,9 +261,10 @@ div:-webkit-full-screen .fullscreen-topbar {
 .in-fullscreen aside {
   position: absolute !important;
   right: 28px !important;
-  top: 48px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
   width: 320px !important;
-  max-height: calc(100vh - 120px) !important;
+  max-height: calc(100vh - 96px) !important;
   overflow-y: auto !important;
   z-index: 40 !important;
 }
@@ -401,7 +404,8 @@ div:-webkit-full-screen .fullscreen-topbar {
 /* Participant aside styling: stacked tiles with neon border */
 .in-fullscreen aside {
   right: 28px !important;
-  top: 48px !important;
+  top: 50% !important;
+  transform: translateY(-50%) !important;
   width: 320px !important;
   display: flex !important;
   flex-direction: column !important;
