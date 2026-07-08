@@ -524,38 +524,65 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
     return (
       <div className="h-full w-full">
-        <div className="flex h-full flex-col justify-start gap-3">
-          {localReady && (
-            <ParticipantTile
-              name={userName || "You"}
-              cameraOn={cameraEnabled}
-              micOn={micEnabled}
-              isActive={micEnabled}
-              isLocal
-              isHost={true}
-              registerVideo={(element) => {
-                if (element) attachStream(element, localStreamRef.current);
-              }}
-            />
-          )}
-          {activeRemotePeerIds.map((peerId) => (
-            <ParticipantTile
-              key={peerId}
-              name={remotePeerStatus.get(peerId)?.userName || "Guest"}
-              cameraOn={remotePeerStatus.get(peerId)?.cameraEnabled ?? true}
-              micOn={remotePeerStatus.get(peerId)?.micEnabled ?? true}
-              isActive={remotePeerStatus.get(peerId)?.micEnabled ?? true}
-              registerVideo={(element) => {
-                if (element) {
-                  remoteVideoRefs.current.set(peerId, element);
-                  const remoteState = peerConnectionsRef.current.get(peerId);
-                  if (remoteState?.remoteStream) {
-                    attachStream(element, remoteState.remoteStream);
+        <div className="flex h-full flex-col justify-center gap-3">
+          <div className="grid max-h-[calc(100vh-160px)] auto-rows-fr gap-3 overflow-y-auto">
+            {localReady && (
+              <ParticipantTile
+                name={userName || "You"}
+                cameraOn={cameraEnabled}
+                micOn={micEnabled}
+                isActive={micEnabled}
+                isLocal
+                isHost={true}
+                registerVideo={(element) => {
+                  if (element) attachStream(element, localStreamRef.current);
+                }}
+              />
+            )}
+            {activeRemotePeerIds.map((peerId) => (
+              <ParticipantTile
+                key={peerId}
+                name={remotePeerStatus.get(peerId)?.userName || "Guest"}
+                cameraOn={remotePeerStatus.get(peerId)?.cameraEnabled ?? true}
+                micOn={remotePeerStatus.get(peerId)?.micEnabled ?? true}
+                isActive={remotePeerStatus.get(peerId)?.micEnabled ?? true}
+                registerVideo={(element) => {
+                  if (element) {
+                    remoteVideoRefs.current.set(peerId, element);
+                    const remoteState = peerConnectionsRef.current.get(peerId);
+                    if (remoteState?.remoteStream) {
+                      attachStream(element, remoteState.remoteStream);
+                    }
                   }
-                }
-              }}
-            />
-          ))}
+                }}
+              />
+            ))}
+          </div>
+          {localReady && (
+            <div className="grid grid-cols-3 gap-2 rounded-lg border border-white/10 bg-black/60 p-2 backdrop-blur">
+              <button
+                className={`rounded-lg px-2 py-2 text-xs font-semibold transition ${micEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/25 text-red-100 hover:bg-red-500/35"}`}
+                onClick={() => toggleTrack("audio")}
+                type="button"
+              >
+                {micEnabled ? "Mic On" : "Muted"}
+              </button>
+              <button
+                className={`rounded-lg px-2 py-2 text-xs font-semibold transition ${cameraEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/25 text-red-100 hover:bg-red-500/35"}`}
+                onClick={() => toggleTrack("video")}
+                type="button"
+              >
+                {cameraEnabled ? "Cam On" : "Cam Off"}
+              </button>
+              <button
+                className="rounded-lg border border-white/15 px-2 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                onClick={teardownCall}
+                type="button"
+              >
+                Leave
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -604,7 +631,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
               {cameraEnabled ? (
                 <video
                   ref={localVideoRef}
-                  className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-cover`}
+                  className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-contain`}
                   autoPlay
                   playsInline
                   muted
@@ -716,7 +743,7 @@ function RemoteTile({ peerId, compact, status, registerVideo, fullscreen = false
         {cameraOn ? (
           <video
             ref={videoRef}
-            className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-cover`}
+            className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-contain`}
             autoPlay
             playsInline
           />
@@ -751,7 +778,7 @@ function ParticipantTile({ name, cameraOn, micOn, isActive, isLocal = false, reg
       {cameraOn ? (
         <video
           ref={videoRef}
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full object-contain"
           autoPlay
           playsInline
           muted={isLocal}
