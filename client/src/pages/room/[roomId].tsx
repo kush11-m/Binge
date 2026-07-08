@@ -445,7 +445,7 @@ function Room() {
             </button>
           )}
 
-          <aside className={showFullscreenCall ? "fullscreen-call-rail min-h-0 overflow-hidden border-t border-white/10 bg-[#07100b] p-2 sm:p-3 lg:border-l lg:border-t-0" : isFullscreen ? "hidden" : "space-y-5"}>
+          <aside className={showFullscreenCall ? "fullscreen-call-rail min-h-0 overflow-hidden border-t border-white/10 bg-black p-2 sm:p-3 lg:border-l lg:border-t-0" : isFullscreen ? "hidden" : "space-y-5"}>
             <VideoCall
               socket={socket}
               roomId={resolvedRoomId}
