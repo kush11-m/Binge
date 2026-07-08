@@ -523,9 +523,18 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
     if (!hasCallParticipants) return null;
 
     return (
-      <div className="h-full w-full">
-        <div className="flex h-full flex-col justify-center gap-3">
-          <div className="grid max-h-[calc(100vh-160px)] auto-rows-fr gap-3 overflow-y-auto">
+      <div className="flex h-full min-h-0 w-full items-center">
+        <div className="flex max-h-full min-h-0 w-full flex-col gap-3 rounded-xl border border-neon/20 bg-black/55 p-3 shadow-[0_20px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl">
+          <div className="flex shrink-0 items-center justify-between gap-3">
+            <div>
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-neon/70">Call</p>
+              <p className="text-xs text-white/55">{status}</p>
+            </div>
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[10px] font-semibold text-white/65">
+              {activeRemotePeerIds.length + (localReady ? 1 : 0)}
+            </span>
+          </div>
+          <div className="grid min-h-0 flex-1 auto-rows-min gap-3 overflow-y-auto pr-1 sm:grid-cols-2 lg:grid-cols-1">
             {localReady && (
               <ParticipantTile
                 name={userName || "You"}
@@ -559,23 +568,23 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
             ))}
           </div>
           {localReady && (
-            <div className="grid grid-cols-3 gap-2 rounded-lg border border-white/10 bg-black/60 p-2 backdrop-blur">
+            <div className="grid shrink-0 grid-cols-3 gap-2 rounded-lg border border-white/10 bg-white/[0.04] p-2">
               <button
-                className={`rounded-lg px-2 py-2 text-xs font-semibold transition ${micEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/25 text-red-100 hover:bg-red-500/35"}`}
+                className={`min-h-10 rounded-lg px-2 py-2 text-xs font-semibold transition ${micEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/25 text-red-100 hover:bg-red-500/35"}`}
                 onClick={() => toggleTrack("audio")}
                 type="button"
               >
                 {micEnabled ? "Mic On" : "Muted"}
               </button>
               <button
-                className={`rounded-lg px-2 py-2 text-xs font-semibold transition ${cameraEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/25 text-red-100 hover:bg-red-500/35"}`}
+                className={`min-h-10 rounded-lg px-2 py-2 text-xs font-semibold transition ${cameraEnabled ? "bg-white/10 text-white hover:bg-white/15" : "bg-red-500/25 text-red-100 hover:bg-red-500/35"}`}
                 onClick={() => toggleTrack("video")}
                 type="button"
               >
                 {cameraEnabled ? "Cam On" : "Cam Off"}
               </button>
               <button
-                className="rounded-lg border border-white/15 px-2 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
+                className="min-h-10 rounded-lg border border-white/15 px-2 py-2 text-xs font-semibold text-white/80 transition hover:bg-white/10"
                 onClick={teardownCall}
                 type="button"
               >
@@ -602,7 +611,7 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
 
       <div className={`grid gap-3 ${compact ? "grid-cols-1" : "grid-cols-1"}`}>
         <div className="space-y-2">
-          <div className="rounded-lg border border-white/10 bg-black/40 p-3 backdrop-blur">
+          <div className="rounded-lg border border-white/10 bg-black/35 p-3 backdrop-blur">
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="min-w-0 flex-1">
                 <p className="text-xs uppercase tracking-[0.2em] text-white/40">Your name</p>
@@ -631,13 +640,13 @@ export default function VideoCall({ socket, roomId, compact = false, fullscreen 
               {cameraEnabled ? (
                 <video
                   ref={localVideoRef}
-                  className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-contain`}
+                  className={`w-full rounded-lg bg-black ${compact ? "h-36" : "h-44"} object-contain`}
                   autoPlay
                   playsInline
                   muted
                 />
               ) : (
-                <div className={`flex w-full items-center justify-center rounded-lg bg-white/5 ${compact ? "h-32" : "h-40"}`}>
+                <div className={`flex w-full items-center justify-center rounded-lg bg-white/5 ${compact ? "h-36" : "h-44"}`}>
                   <div className="text-center">
                     <p className="text-sm font-semibold text-white/80">{userName || 'You'}</p>
                   </div>
@@ -735,7 +744,7 @@ function RemoteTile({ peerId, compact, status, registerVideo, fullscreen = false
 
   const tileClass = fullscreen
     ? `relative rounded-lg border ${micOn ? "border-neon/60" : "border-white/10"} bg-black/40 p-2 backdrop-blur shadow-[0_10px_30px_rgba(0,0,0,0.45)]`
-    : "rounded-lg bg-black/60 p-2";
+    : "rounded-lg border border-white/10 bg-black/45 p-2";
 
   return (
     <div className={tileClass}>
@@ -743,12 +752,12 @@ function RemoteTile({ peerId, compact, status, registerVideo, fullscreen = false
         {cameraOn ? (
           <video
             ref={videoRef}
-            className={`w-full rounded-lg bg-black ${compact ? "h-32" : "h-40"} object-contain`}
+            className={`w-full rounded-lg bg-black ${compact ? "h-36" : "h-44"} object-contain`}
             autoPlay
             playsInline
           />
         ) : (
-          <div className={`flex w-full items-center justify-center rounded-lg bg-white/5 ${compact ? "h-32" : "h-40"}`}>
+          <div className={`flex w-full items-center justify-center rounded-lg bg-white/5 ${compact ? "h-36" : "h-44"}`}>
             <div className="text-center">
               <p className="text-sm font-semibold text-white/80">{name}</p>
             </div>
@@ -774,7 +783,7 @@ function ParticipantTile({ name, cameraOn, micOn, isActive, isLocal = false, reg
   }, [registerVideo]);
 
   return (
-    <div className={`group relative aspect-[4/3] w-full overflow-hidden rounded-lg border ${isActive ? "border-neon/60" : "border-white/10"} bg-[#121212]/80 shadow-2xl transition-all duration-300`}>
+    <div className={`group relative aspect-video w-full overflow-hidden rounded-lg border ${isActive ? "border-neon/60" : "border-white/10"} bg-[#121212]/80 shadow-2xl transition-all duration-300`}>
       {cameraOn ? (
         <video
           ref={videoRef}
