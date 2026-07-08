@@ -66,15 +66,33 @@ export default function StreamingControls({
   const [volume, setVolume] = useState(() => {
     try { return Number(localStorage.getItem('ss-volume')) || 1; } catch { return 1; }
   });
+  const [muted, setMuted] = useState(false);
+  const lastVolumeRef = useRef(volume > 0 ? volume : 1);
 
   useEffect(() => {
     const v = videoRef?.current;
     if (!v) return;
     v.playbackRate = speed;
     v.volume = volume;
+    v.muted = muted;
     try { localStorage.setItem('ss-speed', String(speed)); } catch {}
     try { localStorage.setItem('ss-volume', String(volume)); } catch {}
-  }, [speed, volume, videoRef]);
+  }, [speed, volume, muted, videoRef]);
+
+  useEffect(() => {
+    const video = videoRef?.current;
+    if (!video) return;
+
+    function onVolumeChange() {
+      setVolume(video.volume);
+      setMuted(video.muted || video.volume === 0);
+      if (video.volume > 0) lastVolumeRef.current = video.volume;
+    }
+
+    onVolumeChange();
+    video.addEventListener("volumechange", onVolumeChange);
+    return () => video.removeEventListener("volumechange", onVolumeChange);
+  }, [videoRef]);
 
   // auto-hide logic
   useEffect(() => {
@@ -243,6 +261,41 @@ export default function StreamingControls({
     onSeek(nextTime);
   }
 
+  function setMediaVolume(nextVolume) {
+    const clamped = Math.max(0, Math.min(1, Number(nextVolume)));
+    const video = videoRef.current;
+    setVolume(clamped);
+    if (clamped > 0) lastVolumeRef.current = clamped;
+    const nextMuted = clamped === 0 ? true : false;
+    setMuted(nextMuted);
+    if (video) {
+      video.volume = clamped;
+      video.muted = nextMuted;
+    }
+  }
+
+  function toggleMute() {
+    const video = videoRef.current;
+    const shouldMute = !(video?.muted || muted || volume === 0);
+
+    if (shouldMute) {
+      if (volume > 0) lastVolumeRef.current = volume;
+      setMuted(true);
+      if (video) video.muted = true;
+      return;
+    }
+
+    const restoredVolume = lastVolumeRef.current || 1;
+    setMuted(false);
+    setVolume(restoredVolume);
+    if (video) {
+      video.volume = restoredVolume;
+      video.muted = false;
+    }
+  }
+
+  const isMuted = muted || volume === 0;
+
   const barPosition = fullscreen
     ? "left-4 right-4 bottom-4 sm:left-6 sm:right-6 sm:bottom-6"
     : "left-4 right-4 bottom-4";
@@ -278,9 +331,37 @@ export default function StreamingControls({
               label="Forward"
               onClick={() => skipBy(10)}
             />
-            <button onClick={() => { setVolume(v => { const next = Math.max(0, Math.min(1, v - 0.1)); setVolume(next); if (videoRef.current) videoRef.current.volume = next; return next; }); }} className="ml-1 rounded-md p-1 text-white/65 transition hover:bg-white/10 hover:text-white" aria-label="Lower volume">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" /></svg>
-            </button>
+            <div className="group/volume relative ml-1 flex items-center">
+              <button
+                onClick={toggleMute}
+                className="rounded-md p-1 text-white/65 transition hover:bg-white/10 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-neon/50"
+                aria-label={isMuted ? "Unmute" : "Mute"}
+                title={isMuted ? "Unmute" : "Mute"}
+              >
+                {isMuted ? (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 9l4 4m0-4l-4 4" />
+                  </svg>
+                ) : (
+                  <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                  </svg>
+                )}
+              </button>
+              <div className="pointer-events-none absolute bottom-full left-1/2 mb-2 flex h-28 -translate-x-1/2 items-center rounded-lg border border-white/10 bg-black/90 px-2 py-3 opacity-0 shadow-xl backdrop-blur transition group-hover/volume:pointer-events-auto group-hover/volume:opacity-100 group-focus-within/volume:pointer-events-auto group-focus-within/volume:opacity-100">
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={isMuted ? 0 : volume}
+                  onChange={(event) => setMediaVolume(event.target.value)}
+                  className="h-24 w-6 cursor-pointer accent-neon [writing-mode:vertical-lr]"
+                  aria-label="Volume"
+                  title="Volume"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="order-first flex w-full flex-1 items-center gap-3 sm:order-none sm:w-auto sm:px-2">
