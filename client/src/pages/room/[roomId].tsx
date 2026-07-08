@@ -318,12 +318,12 @@ function Room() {
   );
 
   return (
-    <main className={isFullscreen ? "min-h-screen bg-black text-white" : "min-h-screen bg-canvas px-5 py-6 text-ink sm:px-8"}>
+    <main className={isFullscreen ? "min-h-screen bg-black text-white" : "min-h-screen bg-canvas px-4 py-5 text-ink sm:px-6 sm:py-6 lg:px-8"}>
       <Head>
         <title>{`Room ${resolvedRoomId || ""} - Binge`}</title>
       </Head>
 
-      <div className={isFullscreen ? "w-full" : "mx-auto max-w-7xl space-y-6"}>
+      <div className={isFullscreen ? "w-full" : "mx-auto max-w-[1500px] space-y-5 sm:space-y-6"}>
         {!isFullscreen && (
           <header className="flex flex-wrap items-center justify-between gap-4">
             <button className="text-sm font-semibold text-muted transition hover:text-ink" onClick={() => router.push("/")}>
@@ -341,10 +341,10 @@ function Room() {
           ref={playerContainerRef}
           className={
             showFullscreenCall
-              ? "grid h-screen grid-rows-[minmax(0,1fr)_250px] bg-black text-white md:grid-cols-[minmax(0,1fr)_340px] md:grid-rows-1"
+              ? "fullscreen-room-grid grid h-[100dvh] min-h-0 grid-rows-[minmax(0,1fr)_minmax(180px,34dvh)] bg-black text-white lg:grid-cols-[minmax(0,1fr)_minmax(300px,360px)] lg:grid-rows-1"
               : isFullscreen
-                ? "h-screen bg-black text-white"
-              : "grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]"
+                ? "h-[100dvh] bg-black text-white"
+              : "grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]"
           }
         >
           <div className={isFullscreen ? "relative min-h-0 bg-black" : "rounded-lg border border-line bg-surface p-3 shadow-soft"}>
@@ -393,11 +393,12 @@ function Room() {
                 subsEnabled={subsEnabled}
                 onFullscreen={handleFullscreen}
                 fullscreen={isFullscreen}
+                compact={showFullscreenCall}
               />
             </div>
           </div>
 
-          <aside className={showFullscreenCall ? "min-h-0 overflow-y-auto border-t border-white/10 bg-surface p-3 md:border-l md:border-t-0" : isFullscreen ? "hidden" : "space-y-5"}>
+          <aside className={showFullscreenCall ? "fullscreen-call-rail min-h-0 overflow-hidden border-t border-white/10 bg-[#07100b] p-2 sm:p-3 lg:border-l lg:border-t-0" : isFullscreen ? "hidden" : "space-y-5"}>
             <VideoCall
               socket={socket}
               roomId={resolvedRoomId}
