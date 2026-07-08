@@ -88,10 +88,15 @@ video::-webkit-media-controls-fullscreen-button {
 }
 
 .volume-range {
+  position: absolute;
+  left: 50%;
+  top: 50%;
   width: 96px;
   height: 8px;
-  transform: rotate(-90deg);
+  appearance: none;
+  transform: translate(-50%, -50%) rotate(-90deg);
   transform-origin: center;
+  background: transparent;
 }
 
 .volume-range::-webkit-slider-runnable-track {
@@ -129,6 +134,63 @@ video::-webkit-media-controls-fullscreen-button {
   border-radius: 999px;
   background: #39ff88;
   box-shadow: 0 0 16px rgba(57, 255, 136, 0.45);
+}
+
+.fullscreen-room-grid {
+  --call-size: 340px;
+  grid-template-rows: minmax(0, 1fr) 10px minmax(160px, min(var(--call-size), 48dvh));
+}
+
+.fullscreen-split-handle {
+  position: relative;
+  z-index: 35;
+  min-width: 0;
+  min-height: 10px;
+  border: 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(7, 16, 11, 0.92);
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.fullscreen-split-handle span {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  height: 2px;
+  width: 44px;
+  border-radius: 999px;
+  background: rgba(57, 255, 136, 0.45);
+  transform: translate(-50%, -50%);
+}
+
+.fullscreen-split-handle:hover span,
+.fullscreen-split-handle:focus-visible span {
+  background: #39ff88;
+  box-shadow: 0 0 16px rgba(57, 255, 136, 0.36);
+}
+
+@media (min-width: 1024px) {
+  .fullscreen-room-grid {
+    grid-template-columns: minmax(0, 1fr) 10px minmax(280px, min(var(--call-size), 45vw));
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .fullscreen-split-handle {
+    min-width: 10px;
+    min-height: 0;
+    border-top: 0;
+    border-bottom: 0;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: col-resize;
+  }
+
+  .fullscreen-split-handle span {
+    height: 44px;
+    width: 2px;
+  }
 }
 
 /* Fullscreen container styling */
